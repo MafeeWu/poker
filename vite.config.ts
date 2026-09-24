@@ -17,6 +17,10 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
     globals: true,
+    env: {
+      VITE_SUPABASE_URL: 'https://example.supabase.co',
+      VITE_SUPABASE_ANON_KEY: 'example-anon-key',
+    },
     css: {
       modules: {
         classNameStrategy: 'non-scoped',
