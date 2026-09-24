@@ -1,0 +1,23 @@
+project_id = "poker-mvp-local"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+[db]
+port = 54322
+shadow_port = 54322
+major_version = 15
+[studio]
+enabled = true
+port = 54323
+[auth]
+enabled = true
+port = 54324
+[jwt_secret]
+secret = "super-secret-jwt-token-with-at-least-32-characters"
+
+[storage]
+enabled = true
+port = 54325
