@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
 import { FIBONACCI_CARDS } from '../../domain/poker';
 import type { RoomSnapshot } from '../../lib/roomApi';
@@ -6,6 +6,18 @@ import { CardDeck } from './CardDeck';
 import { ConnectionStatus } from './ConnectionStatus';
 import { RoundBoard } from './RoundBoard';
 import { RoomPage } from './RoomPage';
+import { HostControls } from './HostControls';
+
+const roomApi = vi.hoisted(() => ({
+  joinRoom: vi.fn(),
+  submitVote: vi.fn(),
+  revealRound: vi.fn(),
+}));
+
+vi.mock('../../lib/roomApi', async () => {
+  const actual = await vi.importActual<typeof import('../../lib/roomApi')>('../../lib/roomApi');
+  return { ...actual, ...roomApi };
+});
 
 function votingSnapshot(overrides: Partial<RoomSnapshot> = {}): RoomSnapshot {
   const base: RoomSnapshot = {
@@ -118,9 +130,47 @@ describe('room UI', () => {
     })} />);
     expect(screen.queryByRole('button', { name: /reveal/i })).not.toBeInTheDocument();
   });
+
+  it('disables the host control matching the pending action', () => {
+    render(
+      <HostControls
+        state={votingSnapshot({ myMemberId: 'member-host' })}
+        pendingAction="reveal"
+        onReveal={vi.fn()}
+        onArchive={vi.fn()}
+        onNextRound={vi.fn()}
+        onTransferHost={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /reveal/i })).toBeDisabled();
+  });
+
+  it('blocks voting while the room is reconnecting', async () => {
+    roomApi.submitVote.mockResolvedValueOnce(votingSnapshot({ myVote: '5' }));
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={votingSnapshot()} />);
+
+    await waitFor(() => expect(screen.getByText(/actions are unavailable/i)).toBeInTheDocument());
+    screen.getByRole('button', { name: /5/i }).click();
+
+    expect(roomApi.submitVote).not.toHaveBeenCalled();
+  });
+
+  it('requires explicit identity before joining a deep-linked room', async () => {
+    window.localStorage.clear();
+    render(<RoomPage roomCode="AB12CD34" />);
+
+    expect(await screen.findByText(/join this room/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/nickname/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/room code/i)).toHaveValue('AB12CD34');
+    expect(roomApi.joinRoom).not.toHaveBeenCalled();
+  });
 });
 
 vi.mock('../../lib/roomSync', () => ({
-  subscribeToRoom: vi.fn(() => () => undefined),
+  subscribeToRoom: vi.fn((_roomId, handlers) => {
+    handlers.onConnectionChange('reconnecting');
+    return () => undefined;
+  }),
   fetchRoomSnapshot: vi.fn(),
 }));

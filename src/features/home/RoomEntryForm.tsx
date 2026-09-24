@@ -5,12 +5,13 @@ import { createRoom, joinRoom } from '../../lib/roomApi';
 export type RoomEntryFormProps = {
   mode: 'create' | 'join';
   onSuccess: (snapshot: RoomSnapshot) => void;
+  initialRoomCode?: string;
 };
 
-export function RoomEntryForm({ mode, onSuccess }: RoomEntryFormProps) {
+export function RoomEntryForm({ mode, onSuccess, initialRoomCode = '' }: RoomEntryFormProps) {
   const [nickname, setNickname] = useState('');
   const [projectName, setProjectName] = useState('');
-  const [roomCode, setRoomCode] = useState('');
+  const [roomCode, setRoomCode] = useState(initialRoomCode);
   const [role, setRole] = useState<'voter' | 'observer'>('voter');
   const [error, setError] = useState<string | null>(null);
 
