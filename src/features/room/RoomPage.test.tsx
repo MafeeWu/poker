@@ -120,6 +120,31 @@ describe('room UI', () => {
     expect(screen.queryByText(/vote submitted/i)).not.toBeInTheDocument();
   });
 
+  it('keeps revealed values visible when reduced motion is enabled', () => {
+    const originalMatchMedia = window.matchMedia;
+
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: (query: string) => ({
+        matches: query.includes('prefers-reduced-motion'),
+        media: query,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => false,
+      }),
+    });
+
+    render(<RoundBoard snapshot={revealedSnapshot()} />);
+
+    expect(screen.getByRole('img', { name: /vote distribution/i })).toBeInTheDocument();
+    expect(screen.getByText(/final estimate: 5/i)).toBeInTheDocument();
+    expect(screen.getByText(/5: 2/i)).toBeInTheDocument();
+
+    Object.defineProperty(window, 'matchMedia', { writable: true, value: originalMatchMedia });
+  });
+
   it('renders host controls only for the host role', () => {
     render(<RoomPage roomCode="AB12CD34" initialSnapshot={votingSnapshot({
       members: [

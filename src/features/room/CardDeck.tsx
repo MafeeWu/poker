@@ -1,4 +1,5 @@
 import type { VoteValue } from '../../domain/poker';
+import { Card } from '../../components/Card';
 
 export type CardDeckProps = {
   cards: readonly VoteValue[];
@@ -8,35 +9,17 @@ export type CardDeckProps = {
 };
 
 export function CardDeck({ cards, selected, disabled, onSelect }: CardDeckProps) {
-  const getAccessibleName = (card: VoteValue) => {
-    if (card === '55') {
-      return 'fifty five';
-    }
-
-    if (card === '∞') {
-      return 'infinity';
-    }
-
-    if (card === '½') {
-      return 'half';
-    }
-
-    return card;
-  };
-
   return (
-    <div role="group" aria-label="Fibonacci cards">
+    <div role="group" aria-label="Fibonacci cards" className="card-deck">
       {cards.map((card) => (
-        <button
+        <Card
           key={card}
-          type="button"
-          aria-label={getAccessibleName(card)}
-          aria-pressed={selected === card}
+          value={card}
+          selected={selected === card}
+          faceDown={false}
           disabled={disabled}
           onClick={() => onSelect(card)}
-        >
-          {card}
-        </button>
+        />
       ))}
     </div>
   );

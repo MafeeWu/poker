@@ -50,7 +50,7 @@ export function RoomEntryForm({ mode, onSuccess, initialRoomCode = '' }: RoomEnt
   };
 
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} className="entry-form">
       {mode === 'create' ? (
         <label>
           Project name
@@ -86,32 +86,34 @@ export function RoomEntryForm({ mode, onSuccess, initialRoomCode = '' }: RoomEnt
       {mode === 'join' && (
         <fieldset>
           <legend>Role</legend>
-          <label>
-            <input
-              type="radio"
-              name="room-role"
-              value="voter"
-              checked={role === 'voter'}
-              onChange={() => setRole('voter')}
-            />
-            Voter
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="room-role"
-              value="observer"
-              checked={role === 'observer'}
-              onChange={() => setRole('observer')}
-            />
-            Observer
-          </label>
+          <div className="role-row">
+            <label className="role-option">
+              <input
+                type="radio"
+                name="room-role"
+                value="voter"
+                checked={role === 'voter'}
+                onChange={() => setRole('voter')}
+              />
+              Voter
+            </label>
+            <label className="role-option">
+              <input
+                type="radio"
+                name="room-role"
+                value="observer"
+                checked={role === 'observer'}
+                onChange={() => setRole('observer')}
+              />
+              Observer
+            </label>
+          </div>
         </fieldset>
       )}
 
       {error ? <p role="alert">{error}</p> : null}
 
-      <button type="submit">{mode === 'create' ? 'Create' : 'Join'}</button>
+      <button type="submit" className="action-button">{mode === 'create' ? 'Create' : 'Join'}</button>
     </form>
   );
 }

@@ -1,3 +1,5 @@
+import { StatusPill } from '../../components/StatusPill';
+
 export type ConnectionStatusValue = 'connecting' | 'connected' | 'reconnecting' | 'error';
 
 export function ConnectionStatus({ status }: { status: ConnectionStatusValue }) {
@@ -8,5 +10,16 @@ export function ConnectionStatus({ status }: { status: ConnectionStatusValue }) 
     error: 'Connection error',
   };
 
-  return <p aria-live="polite">{labels[status]}</p>;
+  const tones: Record<ConnectionStatusValue, 'neutral' | 'success' | 'warning' | 'danger'> = {
+    connecting: 'neutral',
+    connected: 'success',
+    reconnecting: 'warning',
+    error: 'danger',
+  };
+
+  return (
+    <div aria-live="polite">
+      <StatusPill tone={tones[status]}>{labels[status]}</StatusPill>
+    </div>
+  );
 }

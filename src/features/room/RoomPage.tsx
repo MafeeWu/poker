@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { CopyButton } from '../../components/CopyButton';
+import { InlineNotice } from '../../components/InlineNotice';
 import { FIBONACCI_CARDS, type VoteValue } from '../../domain/poker';
 import { archiveRound, fetchRoomSnapshot, revealRound, startNextRound, submitVote, transferHost } from '../../lib/roomApi';
 import type { RoomSnapshot } from '../../lib/roomApi';
-import { copyShareLink, readRecentRooms, saveRecentRoom } from './roomCopy';
+import { readRecentRooms, saveRecentRoom } from './roomCopy';
 import { CardDeck } from './CardDeck';
 import { ConnectionStatus, type ConnectionStatusValue } from './ConnectionStatus';
 import { HostControls } from './HostControls';
@@ -21,7 +23,6 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
   const [status, setStatus] = useState<ConnectionStatusValue>('connecting');
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<'vote' | 'reveal' | 'archive' | 'next' | 'transfer' | null>(null);
-  const [linkCopied, setLinkCopied] = useState(false);
   const [needsJoin, setNeedsJoin] = useState(false);
 
   useEffect(() => {
@@ -211,36 +212,35 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
   const canVote = snapshot.round.status === 'voting' && currentMember?.role === 'voter';
 
   return (
-    <main>
+    <main className="room-shell">
       <RoomHeader snapshot={snapshot} />
-      <ConnectionStatus status={status} />
-      {status !== 'connected' ? <p role="status">Actions are unavailable while disconnected.</p> : null}
-      {error ? <p role="alert">{error}</p> : null}
 
-      <div>
-        <span>{typeof window !== 'undefined' ? `${window.location.origin}/room/${snapshot.room.code}` : `/room/${snapshot.room.code}`}</span>
-        <button
-          type="button"
-          onClick={async () => {
-            await copyShareLink(snapshot.room.code);
-            setLinkCopied(true);
-          }}
-        >
-          {linkCopied ? 'Copied' : 'Copy share link'}
-        </button>
+      <div className="action-row">
+        <ConnectionStatus status={status} />
+        <CopyButton value={typeof window !== 'undefined' ? `${window.location.origin}/room/${snapshot.room.code}` : `/room/${snapshot.room.code}`} label="Copy share link" />
       </div>
 
-      <MemberRail snapshot={snapshot} />
-      <RoundBoard snapshot={snapshot} />
-
-      {canVote ? (
-        <CardDeck
-          cards={FIBONACCI_CARDS}
-          selected={snapshot.myVote}
-          disabled={status !== 'connected' || pendingAction !== null || snapshot.round.status !== 'voting'}
-          onSelect={handleVote}
-        />
+      {status !== 'connected' ? (
+        <InlineNotice tone="info" title="Connection status">Actions are unavailable while disconnected.</InlineNotice>
       ) : null}
+
+      {error ? <InlineNotice tone="error" title="Room alert">{error}</InlineNotice> : null}
+
+      <div className="table-shell">
+        <section className="table-panel">
+          <RoundBoard snapshot={snapshot} />
+          {canVote ? (
+            <CardDeck
+              cards={FIBONACCI_CARDS}
+              selected={snapshot.myVote}
+              disabled={status !== 'connected' || pendingAction !== null || snapshot.round.status !== 'voting'}
+              onSelect={handleVote}
+            />
+          ) : null}
+        </section>
+
+        <MemberRail snapshot={snapshot} />
+      </div>
 
       <HostControls
         state={snapshot}

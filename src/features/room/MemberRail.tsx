@@ -1,17 +1,25 @@
+import { StatusPill } from '../../components/StatusPill';
 import type { RoomSnapshot } from '../../lib/roomApi';
 
 export function MemberRail({ snapshot }: { snapshot: RoomSnapshot }) {
   return (
-    <aside>
+    <aside className="member-rail">
       <h2>Members</h2>
-      <ul>
-        {snapshot.members.map((member) => (
-          <li key={member.id}>
-            <strong>{member.nickname}</strong>
-            <span> · {member.role}</span>
-            <span>{member.online ? ' online' : ' offline'}</span>
-          </li>
-        ))}
+      <ul className="member-list">
+        {snapshot.members.map((member) => {
+          const tone = member.role === 'host' ? 'warning' : member.role === 'observer' ? 'neutral' : 'success';
+          return (
+            <li key={member.id} className="member-item">
+              <div>
+                <strong>{member.nickname}</strong>
+              </div>
+              <div className="member-markers">
+                <StatusPill tone={tone}>{member.role}</StatusPill>
+                <span>{member.online ? 'online' : 'offline'}</span>
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </aside>
   );
