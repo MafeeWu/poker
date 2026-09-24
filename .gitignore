@@ -11,3 +11,6 @@ vite.config.d.ts
 .env
 .env.*
 !.env.example
+
+supabase/.branches/
+supabase/.temp/
