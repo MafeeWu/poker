@@ -7,7 +7,42 @@ const env = vi.hoisted(() => {
 });
 
 import { supabase } from './supabase';
-import { createRoom, submitVote } from './roomApi';
+import { createRoom, normalizeRoomSnapshot, submitVote } from './roomApi';
+
+const validSnapshot = {
+  room: {
+    id: 'room-1',
+    code: 'P4KER09',
+    name: 'Planning Room',
+    hostMemberId: 'member-1',
+    maxMembers: 100,
+    createdAt: '2026-09-24T00:00:00.000Z',
+  },
+  myMemberId: 'member-1',
+  members: [
+    {
+      id: 'member-1',
+      nickname: 'Alice',
+      role: 'host' as const,
+      joinedAt: '2026-09-24T00:00:00.000Z',
+      lastSeenAt: '2026-09-24T00:00:00.000Z',
+      online: true,
+    },
+  ],
+  round: {
+    id: 'round-1',
+    number: 1,
+    status: 'voting' as const,
+    finalEstimate: null,
+    startedAt: '2026-09-24T00:00:00.000Z',
+    revealedAt: null,
+    archivedAt: null,
+  },
+  myVote: null,
+  submittedCount: 0,
+  distribution: null,
+  recentRounds: [],
+};
 
 describe('roomApi', () => {
   beforeEach(() => {
@@ -88,5 +123,21 @@ describe('roomApi', () => {
     await expect(submitVote('room-1', 'round-1', 'invalid' as any)).rejects.toThrow('Invalid Fibonacci card');
     expect(signIn).not.toHaveBeenCalled();
     expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('rejects a snapshot with a missing room id', () => {
+    const snapshot = { ...validSnapshot, room: { ...validSnapshot.room, id: undefined } };
+
+    expect(() => normalizeRoomSnapshot(snapshot)).toThrow('room.id');
+  });
+
+  it('rejects a snapshot with a missing round status', () => {
+    const snapshot = { ...validSnapshot, round: { ...validSnapshot.round, status: undefined } };
+
+    expect(() => normalizeRoomSnapshot(snapshot)).toThrow('round.status');
+  });
+
+  it('normalizes a valid snapshot without inventing values', () => {
+    expect(normalizeRoomSnapshot(validSnapshot)).toEqual(validSnapshot);
   });
 });

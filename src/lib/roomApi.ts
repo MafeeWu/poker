@@ -67,77 +67,149 @@ function normalizeText(value: string, label: string): string {
   return trimmed;
 }
 
-function normalizeMember(record: MemberRecord): MemberRecord {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`Invalid snapshot field: ${field}`);
+  }
+  return value;
+}
+
+function requiredNumber(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`Invalid snapshot field: ${field}`);
+  }
+  return value;
+}
+
+function requiredBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new Error(`Invalid snapshot field: ${field}`);
+  }
+  return value;
+}
+
+function nullableString(value: unknown, field: string): string | null {
+  if (value !== null && typeof value !== 'string') {
+    throw new Error(`Invalid snapshot field: ${field}`);
+  }
+  return value;
+}
+
+function validateDistribution(value: unknown, field: string): VoteDistribution {
+  if (!isRecord(value)) {
+    throw new Error(`Invalid snapshot field: ${field}`);
+  }
+
+  const distribution = {} as VoteDistribution;
+  for (const card of FIBONACCI_CARDS) {
+    distribution[card] = requiredNumber(value[card], `${field}.${card}`);
+  }
+  return distribution;
+}
+
+function normalizeMember(value: unknown, index: number): MemberRecord {
+  if (!isRecord(value)) {
+    throw new Error(`Invalid snapshot field: members[${index}]`);
+  }
+
   return {
-    id: record.id,
-    nickname: record.nickname,
-    role: record.role,
-    joinedAt: record.joinedAt,
-    lastSeenAt: record.lastSeenAt,
-    online: Boolean(record.online),
+    id: requiredString(value.id, `members[${index}].id`),
+    nickname: requiredString(value.nickname, `members[${index}].nickname`),
+    role: value.role === 'host' || value.role === 'voter' || value.role === 'observer'
+      ? value.role
+      : (() => { throw new Error(`Invalid snapshot field: members[${index}].role`); })(),
+    joinedAt: requiredString(value.joinedAt, `members[${index}].joinedAt`),
+    lastSeenAt: requiredString(value.lastSeenAt, `members[${index}].lastSeenAt`),
+    online: requiredBoolean(value.online, `members[${index}].online`),
   };
 }
 
-function normalizeRound(record: RoundRecord): RoundRecord {
+function normalizeRound(value: unknown, field: string): RoundRecord {
+  if (!isRecord(value)) {
+    throw new Error(`Invalid snapshot field: ${field}`);
+  }
+
+  const status = value.status === 'voting' || value.status === 'revealed' || value.status === 'archived'
+    ? value.status
+    : (() => { throw new Error(`Invalid snapshot field: ${field}.status`); })();
+
   return {
-    id: record.id,
-    number: record.number,
-    status: record.status,
-    finalEstimate: record.finalEstimate,
-    startedAt: record.startedAt,
-    revealedAt: record.revealedAt,
-    archivedAt: record.archivedAt,
+    id: requiredString(value.id, `${field}.id`),
+    number: requiredNumber(value.number, `${field}.number`),
+    status,
+    finalEstimate: nullableString(value.finalEstimate, `${field}.finalEstimate`),
+    startedAt: requiredString(value.startedAt, `${field}.startedAt`),
+    revealedAt: nullableString(value.revealedAt, `${field}.revealedAt`),
+    archivedAt: nullableString(value.archivedAt, `${field}.archivedAt`),
   };
 }
 
-function normalizeArchivedRound(record: ArchivedRoundRecord): ArchivedRoundRecord {
+function normalizeArchivedRound(value: unknown, index: number): ArchivedRoundRecord {
+  if (!isRecord(value)) {
+    throw new Error(`Invalid snapshot field: recentRounds[${index}]`);
+  }
+
   return {
-    ...normalizeRound(record),
-    distribution: { ...(record.distribution ?? {}) },
+    ...normalizeRound(value, `recentRounds[${index}]`),
+    distribution: validateDistribution(value.distribution, `recentRounds[${index}].distribution`),
   };
 }
 
-export function normalizeRoomSnapshot(snapshot: Partial<RoomSnapshotJson> | Partial<RoomSnapshot> | null | undefined): RoomSnapshot {
-  const room = snapshot?.room as Partial<RoomRecord> | undefined;
-  const members = Array.isArray(snapshot?.members) ? snapshot.members.map((member) => normalizeMember(member as MemberRecord)) : [];
-  const round = snapshot?.round as Partial<RoundRecord> | undefined;
-  const recentRounds = Array.isArray((snapshot as any)?.recentRounds)
-    ? (snapshot as any).recentRounds.map((entry: ArchivedRoundRecord) => normalizeArchivedRound(entry))
-    : [];
+export function normalizeRoomSnapshot(snapshot: unknown): RoomSnapshot {
+  if (!isRecord(snapshot)) {
+    throw new Error('Invalid room snapshot: snapshot');
+  }
 
-  const normalizedRoom: RoomRecord = {
-    id: room?.id ?? '',
-    code: room?.code ?? '',
-    name: room?.name ?? '',
-    hostMemberId: room?.hostMemberId ?? '',
-    maxMembers: Number(room?.maxMembers ?? 0),
-    createdAt: room?.createdAt ?? new Date(0).toISOString(),
-  };
-
-  const normalizedRound: RoundRecord = {
-    id: round?.id ?? '',
-    number: Number(round?.number ?? 0),
-    status: round?.status ?? 'voting',
-    finalEstimate: round?.finalEstimate ?? null,
-    startedAt: round?.startedAt ?? new Date(0).toISOString(),
-    revealedAt: round?.revealedAt ?? null,
-    archivedAt: round?.archivedAt ?? null,
-  };
-
-  const myMemberId = typeof (snapshot as any)?.myMemberId === 'string' ? (snapshot as any).myMemberId : members[0]?.id ?? '';
-  const submittedCount = typeof (snapshot as any)?.submittedCount === 'number' ? (snapshot as any).submittedCount : members.length;
-  const myVote = (snapshot as any)?.myVote ?? null;
-  const distribution = (snapshot as any)?.distribution ?? null;
+  if (!isRecord(snapshot.room)) {
+    throw new Error('Invalid snapshot field: room');
+  }
+  const room = snapshot.room;
+  const membersValue = snapshot.members;
+  if (!Array.isArray(membersValue)) {
+    throw new Error('Invalid snapshot field: members');
+  }
+  if (!isRecord(snapshot.round)) {
+    throw new Error('Invalid snapshot field: round');
+  }
+  if (typeof snapshot.myMemberId !== 'string' || !snapshot.myMemberId.trim()) {
+    throw new Error('Invalid snapshot field: myMemberId');
+  }
+  if (typeof snapshot.myVote !== 'string' && snapshot.myVote !== null) {
+    throw new Error('Invalid snapshot field: myVote');
+  }
+  if (snapshot.myVote !== null && !FIBONACCI_CARDS.includes(snapshot.myVote as VoteValue)) {
+    throw new Error('Invalid snapshot field: myVote');
+  }
+  if (typeof snapshot.submittedCount !== 'number' || !Number.isFinite(snapshot.submittedCount)) {
+    throw new Error('Invalid snapshot field: submittedCount');
+  }
+  if (snapshot.distribution !== null && !isRecord(snapshot.distribution)) {
+    throw new Error('Invalid snapshot field: distribution');
+  }
+  if (!Array.isArray(snapshot.recentRounds)) {
+    throw new Error('Invalid snapshot field: recentRounds');
+  }
 
   return {
-    room: normalizedRoom,
-    myMemberId,
-    members,
-    round: normalizedRound,
-    myVote: myVote as VoteValue | null,
-    submittedCount,
-    distribution: distribution && typeof distribution === 'object' ? { ...(distribution as VoteDistribution) } : null,
-    recentRounds,
+    room: {
+      id: requiredString(room.id, 'room.id'),
+      code: requiredString(room.code, 'room.code'),
+      name: requiredString(room.name, 'room.name'),
+      hostMemberId: requiredString(room.hostMemberId, 'room.hostMemberId'),
+      maxMembers: requiredNumber(room.maxMembers, 'room.maxMembers'),
+      createdAt: requiredString(room.createdAt, 'room.createdAt'),
+    },
+    myMemberId: snapshot.myMemberId,
+    members: membersValue.map((member, index) => normalizeMember(member, index)),
+    round: normalizeRound(snapshot.round, 'round'),
+    myVote: snapshot.myVote as VoteValue | null,
+    submittedCount: snapshot.submittedCount,
+    distribution: snapshot.distribution === null ? null : validateDistribution(snapshot.distribution, 'distribution'),
+    recentRounds: snapshot.recentRounds.map((round, index) => normalizeArchivedRound(round, index)),
   };
 }
 
