@@ -2,7 +2,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(14);
+SELECT plan(18);
 
 CREATE TEMP TABLE poker_test_state (
   room_id uuid,
@@ -86,6 +86,18 @@ SELECT is(
   'snapshot does not expose user A hidden vote to user B before reveal'
 );
 
+SELECT is(
+  (SELECT build_room_snapshot((SELECT room_id FROM poker_test_state), '11111111-1111-4111-8111-111111111111'::uuid)->>'myMemberId'),
+  (SELECT user_b_member_id::text FROM poker_test_state),
+  'snapshot identifies the caller member before reveal'
+);
+
+SELECT is(
+  (SELECT (build_room_snapshot((SELECT room_id FROM poker_test_state), '11111111-1111-4111-8111-111111111111'::uuid)->>'submittedCount')::integer),
+  1,
+  'snapshot counts eligible submissions before reveal'
+);
+
 RESET ROLE;
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
@@ -108,6 +120,18 @@ SELECT is(
   (SELECT build_room_snapshot((SELECT room_id FROM poker_test_state), '11111111-1111-4111-8111-111111111111'::uuid)->'distribution'->>'3'),
   '1',
   'revealed snapshot exposes user A vote in distribution'
+);
+
+SELECT is(
+  (SELECT build_room_snapshot((SELECT room_id FROM poker_test_state), '11111111-1111-4111-8111-111111111111'::uuid)->>'myMemberId'),
+  (SELECT user_b_member_id::text FROM poker_test_state),
+  'snapshot identifies the caller member after reveal'
+);
+
+SELECT is(
+  (SELECT (build_room_snapshot((SELECT room_id FROM poker_test_state), '11111111-1111-4111-8111-111111111111'::uuid)->>'submittedCount')::integer),
+  1,
+  'snapshot counts eligible submissions after reveal'
 );
 
 RESET ROLE;

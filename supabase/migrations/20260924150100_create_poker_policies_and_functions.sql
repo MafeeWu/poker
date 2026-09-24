@@ -50,6 +50,8 @@ $$;
 CREATE OR REPLACE FUNCTION public.build_room_snapshot(p_room_id uuid, p_user_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_catalog
 STABLE
 AS $$
 DECLARE
@@ -60,7 +62,17 @@ DECLARE
   v_my_vote text;
   v_distribution jsonb;
   v_member_id uuid;
+  v_submitted_count integer;
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.room_members rm
+    WHERE rm.room_id = p_room_id
+      AND rm.auth_user_id = auth.uid()
+  ) THEN
+    RAISE EXCEPTION 'Membership required';
+  END IF;
+
   SELECT * INTO v_room
   FROM public.rooms
   WHERE id = p_room_id;
@@ -82,6 +94,13 @@ BEGIN
   WHERE round_id = v_round.id
     AND member_id = v_member_id
   LIMIT 1;
+
+  SELECT count(*)::integer INTO v_submitted_count
+  FROM public.votes v
+  JOIN public.room_members rm ON rm.id = v.member_id
+  WHERE v.round_id = v_round.id
+    AND rm.room_id = p_room_id
+    AND rm.role IN ('host', 'voter');
 
   SELECT jsonb_agg(
     jsonb_build_object(
@@ -143,7 +162,9 @@ BEGIN
       'revealedAt', v_round.revealed_at,
       'archivedAt', v_round.archived_at
     ),
+    'myMemberId', v_member_id,
     'myVote', v_my_vote,
+    'submittedCount', v_submitted_count,
     'distribution', v_distribution,
     'recentRounds', COALESCE(v_recent_rounds, '[]'::jsonb)
   );
