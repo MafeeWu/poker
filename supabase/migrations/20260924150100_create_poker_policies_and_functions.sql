@@ -74,7 +74,7 @@ BEGIN
   SELECT rm.id INTO v_member_id
   FROM public.room_members rm
   WHERE rm.room_id = p_room_id
-    AND rm.auth_user_id = p_user_id
+    AND rm.auth_user_id = auth.uid()
   LIMIT 1;
 
   SELECT value INTO v_my_vote
