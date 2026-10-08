@@ -14,11 +14,40 @@ npm run dev
 
 The app reads browser environment variables from `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. The local scripts and Playwright checks read `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
 
+## Configure local E2E and load-probe environment
+
+The E2E suite and the 100-member probe load `.env.test`; `.env.local` is only for the Vite app and does not configure these Node.js scripts. Start Supabase, inspect its local API URL and anon key, then make a private test-env file from the template:
+
+```bash
+supabase start
+supabase status
+cp .env.example .env.test
+vi .env.test
+```
+
+In `.env.test`, replace the URL and key placeholders with the `API URL` and `anon key` shown by `supabase status`. Set both `VITE_SUPABASE_URL` and `SUPABASE_URL` to the API URL, and both `VITE_SUPABASE_ANON_KEY` and `SUPABASE_ANON_KEY` to the anon key. Use the same API URL and anon key for the `VITE_*` entries in `.env.local` to run the browser app. Do not use the service-role key. `.env.test` is ignored by Git; keep these local credentials out of tracked files.
+
+With `.env.test` populated, run either or both checks:
+
+```bash
+npm run test:e2e
+npm run probe:room
+```
+
+Alternatively, export the script variables from the same local `supabase status` output before running them:
+
+```bash
+export SUPABASE_URL='<API URL from supabase status>'
+export SUPABASE_ANON_KEY='<anon key from supabase status>'
+npm run test:e2e
+npm run probe:room
+```
+
 ## Supabase configuration
 
 1. Start the local Supabase stack with the Supabase CLI.
 2. In the Supabase dashboard, enable anonymous sign-ins for Authentication.
-3. Copy the generated URL and anon key into your local environment. The values must remain in `.env.local` or the deployment platform's environment settings; do not hardcode them in source files.
+3. Use the generated URL and anon key in `.env.local` for the app and `.env.test` for E2E/probe scripts. Keep these local credentials in ignored env files or deployment platform settings; do not hardcode them in source files.
 4. For Cloudflare Pages, set the same `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` variables in both Preview and Production environment settings.
 5. The app expects the project to use the public schema plus the local Supabase Realtime publication for `rooms`, `room_members`, and `rounds`.
 
@@ -45,4 +74,4 @@ npm run test:e2e
 npm run probe:room
 ```
 
-The end-to-end browser suite and the 100-member room probe require a running local Supabase instance and must be run only with real anonymous auth and Realtime enabled.
+The E2E and probe commands above load `.env.test` automatically (or use the exported variables shown in the local E2E and load-probe setup). They require a running local Supabase instance with anonymous auth and Realtime enabled.

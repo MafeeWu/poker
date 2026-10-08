@@ -16,12 +16,12 @@ The browser client uses:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 
-The local test and probe scripts use:
+The Playwright and load-probe scripts load `.env.test` and use:
 
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
 
-The generated URL and anon key must remain in environment variables and must match the same Supabase project. The scripts validate loopback URLs for local development and require both values before running the end-to-end suite or the room load probe.
+The generated URL and anon key must match the same local Supabase project. The scripts validate loopback URLs and require both values before running the end-to-end suite or room load probe.
 
 ## Supabase enablement checklist
 
@@ -32,7 +32,12 @@ cp .env.example .env.local
 npm install
 supabase start
 supabase db reset
+supabase status
+cp .env.example .env.test
+vi .env.test
 ```
+
+In `.env.test`, replace the URL and key placeholders with the local `API URL` and `anon key` printed by `supabase status`. Set `VITE_SUPABASE_URL` and `SUPABASE_URL` to that API URL, and `VITE_SUPABASE_ANON_KEY` and `SUPABASE_ANON_KEY` to that anon key. Use the same values for the `VITE_*` entries in `.env.local` to run the browser app. Do not use the service-role key. The `.env.test` file is ignored by Git; do not add local credentials to tracked files.
 
 Then confirm the following in the Supabase dashboard:
 
@@ -40,6 +45,24 @@ Then confirm the following in the Supabase dashboard:
 - Realtime is available for the project.
 - `supabase_realtime` includes the public `rooms`, `room_members`, and `rounds` tables.
 - RLS is enabled on the room tables and the RPC access patterns match the membership rules.
+
+## Run E2E and load probe
+
+Both commands read the ignored `.env.test` file automatically:
+
+```bash
+npm run test:e2e
+npm run probe:room
+```
+
+Alternatively, export the values copied from `supabase status` in the current shell, then run the same commands:
+
+```bash
+export SUPABASE_URL='<API URL from supabase status>'
+export SUPABASE_ANON_KEY='<anon key from supabase status>'
+npm run test:e2e
+npm run probe:room
+```
 
 ## RLS and Realtime verification
 
@@ -78,12 +101,12 @@ The generated static bundle is written to `dist` and should be published as the 
 The repository includes a load probe at `scripts/load-room.mjs` for verifying the room capacity path and realtime propagation. It expects:
 
 ```bash
-SUPABASE_URL=... \
-SUPABASE_ANON_KEY=... \
 ROOM_CODE=... \
 MEMBER_COUNT=100 \
 node scripts/load-room.mjs
 ```
+
+The URL and anon key for this command come from `.env.test` or the exported variables above.
 
 `MEMBER_COUNT` defaults to `100`, and the script is designed to fail if the 101st join is accepted, a hidden vote is exposed before reveal, or the realtime propagation does not reach all 100 members. The script measures join, vote, and Reveal propagation latency and verifies cleanup of channels and sessions.
 
