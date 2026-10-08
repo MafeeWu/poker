@@ -1,27 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { suggestFinalEstimate } from '../../domain/roundOutcome';
 import type { RoomSnapshot } from '../../lib/roomApi';
 import type { ConnectionStatusValue } from './ConnectionStatus';
+import { RoundOutcomeForm } from './RoundOutcomeForm';
 
 export type HostControlsProps = {
   state: RoomSnapshot;
   status: ConnectionStatusValue;
   onReveal: () => void;
-  onArchive: (finalEstimate: string) => void;
-  onNextRound: () => void;
+  onSaveOutcome: (finalEstimate: string | null, note: string | null) => void;
+  onNextRound: (finalEstimate: string, note: string | null) => void;
   onTransferHost: (memberId: string) => void;
-  pendingAction?: 'vote' | 'reveal' | 'archive' | 'next' | 'transfer' | null;
+  outcomeError: string | null;
+  pendingAction?: 'vote' | 'reveal' | 'outcome' | 'next' | 'transfer' | null;
 };
 
-export function HostControls({ state, status, onReveal, onArchive, onNextRound, onTransferHost, pendingAction = null }: HostControlsProps) {
+export function HostControls({ state, status, onReveal, onSaveOutcome, onNextRound, onTransferHost, outcomeError, pendingAction = null }: HostControlsProps) {
   const currentMember = state.members.find((member) => member.id === state.myMemberId);
   const isHost = currentMember?.role === 'host' || state.room.hostMemberId === state.myMemberId;
   const actionsUnavailable = status !== 'connected';
-  const [finalEstimate, setFinalEstimate] = useState(state.round.finalEstimate ?? '');
   const [transferTarget, setTransferTarget] = useState('');
-
-  useEffect(() => {
-    setFinalEstimate(state.round.finalEstimate ?? '');
-  }, [state.round.finalEstimate]);
 
   if (!isHost) {
     return null;
@@ -30,26 +28,21 @@ export function HostControls({ state, status, onReveal, onArchive, onNextRound, 
   const transferOptions = state.members.filter((member) => member.id !== state.myMemberId);
 
   return (
-    <section>
-      {state.round.status === 'voting' ? <button type="button" data-testid="reveal-button" onClick={onReveal} disabled={actionsUnavailable || pendingAction === 'reveal'}>Reveal</button> : null}
+    <section className="host-controls">
+      {state.round.status === 'voting' ? <button type="button" className="arcade-button" data-testid="reveal-button" onClick={onReveal} disabled={actionsUnavailable || pendingAction === 'reveal'}>Reveal</button> : null}
 
       {state.round.status === 'revealed' ? (
-        <div>
-          <label>
-            Final estimate
-            <input
-              type="text"
-              data-testid="final-estimate"
-              value={finalEstimate}
-              onChange={(event) => setFinalEstimate(event.target.value)}
-            />
-          </label>
-          <button type="button" onClick={() => onArchive(finalEstimate)} disabled={actionsUnavailable || pendingAction === 'archive'}>Archive</button>
-        </div>
-      ) : null}
-
-      {state.round.status === 'archived' ? (
-        <button type="button" onClick={onNextRound} disabled={actionsUnavailable || pendingAction === 'next'}>Next round</button>
+        <RoundOutcomeForm
+          roundId={state.round.id}
+          finalEstimate={state.round.finalEstimate}
+          note={state.round.note}
+          suggestion={suggestFinalEstimate(state.distribution)}
+          pendingAction={pendingAction === 'outcome' ? 'save' : pendingAction === 'next' ? 'next' : null}
+          disabled={actionsUnavailable}
+          error={outcomeError}
+          onSave={onSaveOutcome}
+          onNextRound={onNextRound}
+        />
       ) : null}
 
       {transferOptions.length > 0 ? (
@@ -63,7 +56,7 @@ export function HostControls({ state, status, onReveal, onArchive, onNextRound, 
               ))}
             </select>
           </label>
-          <button type="button" onClick={() => transferTarget && onTransferHost(transferTarget)} disabled={actionsUnavailable || pendingAction === 'transfer'}>
+          <button type="button" className="arcade-button" onClick={() => transferTarget && onTransferHost(transferTarget)} disabled={actionsUnavailable || pendingAction === 'transfer'}>
             Transfer host
           </button>
         </div>

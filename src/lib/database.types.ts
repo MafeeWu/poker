@@ -128,14 +128,6 @@ export type Database = {
         Args: { p_room_id: string; p_round_id: string };
         Returns: RoomSnapshotJson;
       };
-      archive_round: {
-        Args: { p_room_id: string; p_round_id: string; p_final_estimate: string };
-        Returns: RoomSnapshotJson;
-      };
-      start_next_round: {
-        Args: { p_room_id: string; p_round_id: string };
-        Returns: RoomSnapshotJson;
-      };
       update_round_outcome: {
         Args: {
           p_room_id: string;

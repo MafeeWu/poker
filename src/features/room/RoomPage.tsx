@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CopyButton } from '../../components/CopyButton';
 import { InlineNotice } from '../../components/InlineNotice';
 import { FIBONACCI_CARDS, type VoteValue } from '../../domain/poker';
-import { archiveRound, fetchRoomSnapshot, revealRound, startNextRound, submitVote, transferHost } from '../../lib/roomApi';
+import { completeRoundAndStartNextRound, fetchRoomSnapshot, revealRound, submitVote, transferHost, updateRoundOutcome } from '../../lib/roomApi';
 import type { RoomSnapshot } from '../../lib/roomApi';
 import { readRecentRooms, saveRecentRoom } from './roomCopy';
 import { CardDeck } from './CardDeck';
@@ -12,6 +12,7 @@ import { MemberGrid } from './MemberGrid';
 import { RoomHeader } from './RoomHeader';
 import { RoundBoard } from './RoundBoard';
 import { VoteDistribution } from './VoteDistribution';
+import { RoundHistory } from './RoundHistory';
 import { RoomEntryForm } from '../home/RoomEntryForm';
 
 export type RoomPageProps = {
@@ -23,7 +24,8 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(initialSnapshot ?? null);
   const [status, setStatus] = useState<ConnectionStatusValue>('connecting');
   const [error, setError] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<'vote' | 'reveal' | 'archive' | 'next' | 'transfer' | null>(null);
+  const [pendingAction, setPendingAction] = useState<'vote' | 'reveal' | 'outcome' | 'next' | 'transfer' | null>(null);
+  const [outcomeError, setOutcomeError] = useState<string | null>(null);
   const [needsJoin, setNeedsJoin] = useState(false);
 
   useEffect(() => {
@@ -126,37 +128,38 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
     }
   };
 
-  const handleArchive = async (finalEstimate: string) => {
-    if (!snapshot || status !== 'connected' || pendingAction || !finalEstimate.trim()) {
+  const handleUpdateOutcome = async (finalEstimate: string | null, note: string | null) => {
+    if (!snapshot || status !== 'connected' || pendingAction) {
       return;
     }
 
-    setPendingAction('archive');
+    setPendingAction('outcome');
     try {
-      const nextSnapshot = await archiveRound(snapshot.room.id, snapshot.round.id, finalEstimate);
+      const nextSnapshot = await updateRoundOutcome(snapshot.room.id, snapshot.round.id, finalEstimate, note);
       setSnapshot(nextSnapshot);
-      setError(null);
+      setOutcomeError(null);
       saveRecentRoom(nextSnapshot);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : 'Unable to archive round');
+      setOutcomeError(caughtError instanceof Error ? caughtError.message : 'Unable to save round outcome');
     } finally {
       setPendingAction(null);
     }
   };
 
-  const handleNextRound = async () => {
+  const handleNextRound = async (finalEstimate: string, note: string | null) => {
     if (!snapshot || status !== 'connected' || pendingAction) {
       return;
     }
 
     setPendingAction('next');
     try {
-      const nextSnapshot = await startNextRound(snapshot.room.id, snapshot.round.id);
+      const nextSnapshot = await completeRoundAndStartNextRound(snapshot.room.id, snapshot.round.id, finalEstimate, note);
       setSnapshot(nextSnapshot);
       setError(null);
+      setOutcomeError(null);
       saveRecentRoom(nextSnapshot);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : 'Unable to start next round');
+      setOutcomeError(caughtError instanceof Error ? caughtError.message : 'Unable to start next round');
     } finally {
       setPendingAction(null);
     }
@@ -187,7 +190,7 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
 
   if (!snapshot) {
     return (
-      <main>
+      <main data-theme="arcade">
         <ConnectionStatus status={status} />
         {error ? <p role="alert">{error}</p> : null}
         {needsJoin ? (
@@ -210,10 +213,10 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
     );
   }
 
-  const canVote = snapshot.round.status === 'voting' && currentMember?.role === 'voter';
+  const canVote = snapshot.round.status === 'voting' && (currentMember?.role === 'voter' || currentMember?.role === 'host');
 
   return (
-    <main className="room-shell">
+    <main className="room-shell" data-theme="arcade">
       <RoomHeader snapshot={snapshot} />
 
       <div className="action-row">
@@ -243,15 +246,20 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
           {snapshot.round.status !== 'voting' && snapshot.round.finalEstimate ? (
             <p className="round-status" data-testid="final-estimate-value">Final estimate: {snapshot.round.finalEstimate}</p>
           ) : null}
+          {snapshot.round.status !== 'voting' && snapshot.round.note !== null && currentMember?.role !== 'host' ? (
+            <p className="round-status" data-testid="current-round-note">Note: {snapshot.round.note}</p>
+          ) : null}
+          <RoundHistory rounds={snapshot.recentRounds} />
         </section>
       </div>
 
       <HostControls
         state={snapshot}
         onReveal={handleReveal}
-        onArchive={handleArchive}
+        onSaveOutcome={handleUpdateOutcome}
         onNextRound={handleNextRound}
         onTransferHost={handleTransferHost}
+        outcomeError={outcomeError}
         status={status}
         pendingAction={pendingAction}
       />

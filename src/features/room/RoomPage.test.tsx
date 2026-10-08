@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import { FIBONACCI_CARDS } from '../../domain/poker';
 import type { RoomSnapshot } from '../../lib/roomApi';
@@ -9,11 +10,16 @@ import { RoomPage } from './RoomPage';
 import { HostControls } from './HostControls';
 import { saveRecentRoom } from './roomCopy';
 
+const roomSyncState = vi.hoisted(() => ({ status: 'connected' as 'connected' | 'reconnecting' }));
+
 const roomApi = vi.hoisted(() => ({
   joinRoom: vi.fn(),
   fetchRoomSnapshot: vi.fn(),
   submitVote: vi.fn(),
   revealRound: vi.fn(),
+  updateRoundOutcome: vi.fn(),
+  completeRoundAndStartNextRound: vi.fn(),
+  transferHost: vi.fn(),
 }));
 
 vi.mock('../../lib/roomApi', async () => {
@@ -107,6 +113,14 @@ function revealedSnapshot(): RoomSnapshot {
 }
 
 describe('room UI', () => {
+  beforeEach(() => {
+    roomSyncState.status = 'connected';
+    vi.clearAllMocks();
+    roomApi.submitVote.mockReset();
+    roomApi.updateRoundOutcome.mockReset();
+    roomApi.completeRoundAndStartNextRound.mockReset();
+    roomApi.revealRound.mockReset();
+  });
   it('renders every Fibonacci card', () => {
     render(<CardDeck cards={FIBONACCI_CARDS} selected={null} disabled={false} onSelect={vi.fn()} />);
     expect(screen.getAllByRole('button')).toHaveLength(FIBONACCI_CARDS.length);
@@ -235,8 +249,9 @@ describe('room UI', () => {
         status="connected"
         pendingAction="reveal"
         onReveal={vi.fn()}
-        onArchive={vi.fn()}
+        onSaveOutcome={vi.fn()}
         onNextRound={vi.fn()}
+        outcomeError={null}
         onTransferHost={vi.fn()}
       />,
     );
@@ -248,8 +263,9 @@ describe('room UI', () => {
     const state = votingSnapshot({ myMemberId: 'member-host' });
     const controls = {
       onReveal: vi.fn(),
-      onArchive: vi.fn(),
+      onSaveOutcome: vi.fn(),
       onNextRound: vi.fn(),
+      outcomeError: null,
       onTransferHost: vi.fn(),
     };
     const { rerender } = render(
@@ -268,12 +284,12 @@ describe('room UI', () => {
 
     const revealed = { ...revealedSnapshot(), myMemberId: 'member-host' };
     rerender(<HostControls state={revealed} status="connected" {...controls} />);
-    expect(screen.getByRole('button', { name: /archive/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /next round/i })).toBeEnabled();
     expect(screen.getByRole('button', { name: /transfer host/i })).toBeEnabled();
     expect(screen.getByRole('combobox', { name: /transfer host/i })).toBeEnabled();
 
     rerender(<HostControls state={revealed} status="reconnecting" {...controls} />);
-    expect(screen.getByRole('button', { name: /archive/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /next round/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /transfer host/i })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: /transfer host/i })).toBeDisabled();
 
@@ -291,15 +307,16 @@ describe('room UI', () => {
       },
     });
     rerender(<HostControls state={archived} status="connected" {...controls} />);
-    expect(screen.getByRole('button', { name: /next round/i })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /next round/i })).not.toBeInTheDocument();
 
     rerender(<HostControls state={archived} status="reconnecting" {...controls} />);
-    expect(screen.getByRole('button', { name: /next round/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /next round/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /transfer host/i })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: /transfer host/i })).toBeDisabled();
   });
 
   it('blocks voting while the room is reconnecting', async () => {
+    roomSyncState.status = 'reconnecting';
     roomApi.submitVote.mockResolvedValueOnce(votingSnapshot({ myVote: '5' }));
     render(<RoomPage roomCode="AB12CD34" initialSnapshot={votingSnapshot()} />);
 
@@ -307,6 +324,76 @@ describe('room UI', () => {
     screen.getByRole('button', { name: /5/i }).click();
 
     expect(roomApi.submitVote).not.toHaveBeenCalled();
+  });
+
+  it('allows the host to vote and reports a failed vote without marking it submitted', async () => {
+    const hostState = votingSnapshot({ myMemberId: 'member-host' });
+    roomApi.submitVote.mockRejectedValueOnce(new Error('Vote was not saved. Check your connection and retry.'));
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={hostState} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /5/i }));
+
+    expect(roomApi.submitVote).toHaveBeenCalledWith('room-1', 'round-1', '5');
+    expect(await screen.findByText('Vote was not saved. Check your connection and retry.')).toBeInTheDocument();
+    expect(screen.getByTestId('member-card-member-host')).toHaveAttribute('data-vote-status', 'pending');
+  });
+
+  it('shows a saved current-round Note to room members who are not the host', () => {
+    const memberSnapshot = revealedSnapshot();
+    memberSnapshot.round.note = 'Keep the scope small';
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={memberSnapshot} />);
+
+    expect(screen.getByTestId('current-round-note')).toHaveTextContent('Note: Keep the scope small');
+    expect(screen.queryByRole('textbox', { name: 'Note' })).not.toBeInTheDocument();
+  });
+
+  it('sends the latest outcome to one atomic next-round action and keeps archived history visible', async () => {
+    const user = userEvent.setup();
+    const current = { ...revealedSnapshot(), myMemberId: 'member-host' };
+    const next = votingSnapshot({
+      myMemberId: 'member-host',
+      round: { id: 'round-2', number: 2, status: 'voting', finalEstimate: null, note: null, startedAt: '2026-10-08T12:06:00.000Z', revealedAt: null, archivedAt: null },
+      recentRounds: [{
+        id: 'round-1', number: 1, status: 'archived', finalEstimate: '8', note: 'Ship safely',
+        startedAt: current.round.startedAt, revealedAt: current.round.revealedAt, archivedAt: '2026-10-08T12:06:00.000Z',
+        distribution: current.distribution!,
+      }],
+    });
+    roomApi.completeRoundAndStartNextRound.mockResolvedValueOnce(next);
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={current} />);
+
+    expect(screen.queryByRole('button', { name: /archive/i })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Final estimate' }), { target: { value: '8' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), { target: { value: 'Ship safely' } });
+    await user.click(screen.getByRole('button', { name: 'Next round' }));
+
+    await waitFor(() => expect(roomApi.completeRoundAndStartNextRound).toHaveBeenCalledWith('room-1', 'round-1', '8', 'Ship safely'));
+    expect(await screen.findByText('Round 2')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Round history' })).toHaveTextContent('Final estimate: 8');
+    expect(screen.getByRole('region', { name: 'Round history' })).toHaveTextContent('Ship safely');
+  });
+
+  it('keeps the revealed outcome draft visible when saving or advancing fails', async () => {
+    const current = { ...revealedSnapshot(), myMemberId: 'member-host' };
+    roomApi.updateRoundOutcome.mockRejectedValueOnce(new Error('Outcome save failed'));
+    roomApi.completeRoundAndStartNextRound.mockRejectedValueOnce(new Error('Next round failed'));
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={current} />);
+
+    const estimate = screen.getByRole('textbox', { name: 'Final estimate' });
+    const note = screen.getByRole('textbox', { name: 'Note' });
+    fireEvent.change(estimate, { target: { value: '8' } });
+    fireEvent.change(note, { target: { value: 'Keep this draft' } });
+    await act(async () => { fireEvent.blur(note); });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Outcome save failed');
+    expect(screen.getByRole('textbox', { name: 'Final estimate' })).toHaveValue('8');
+    expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue('Keep this draft');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next round' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Next round failed');
+    expect(screen.getByTestId('round-status')).toHaveTextContent(/revealed/i);
+    expect(screen.getByRole('textbox', { name: 'Final estimate' })).toHaveValue('8');
+    expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue('Keep this draft');
   });
 
   it('requires explicit identity before joining a deep-linked room', async () => {
@@ -334,7 +421,7 @@ describe('room UI', () => {
 
 vi.mock('../../lib/roomSync', () => ({
   subscribeToRoom: vi.fn((_roomId, handlers) => {
-    handlers.onConnectionChange('reconnecting');
+    handlers.onConnectionChange(roomSyncState.status);
     return () => undefined;
   }),
   fetchRoomSnapshot: vi.fn(),

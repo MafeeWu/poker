@@ -313,22 +313,6 @@ export async function revealRound(roomId: string, roundId: string): Promise<Room
   return normalizeRoomSnapshot(response);
 }
 
-export async function archiveRound(roomId: string, roundId: string, finalEstimate: string): Promise<RoomSnapshot> {
-  const trimmedEstimate = finalEstimate.trim();
-  if (!trimmedEstimate) {
-    throw new Error('Final estimate is required');
-  }
-
-  await ensureAnonymousSession();
-  const response = await rpc<RoomSnapshotJson>('archive_round', {
-    p_room_id: roomId,
-    p_round_id: roundId,
-    p_final_estimate: trimmedEstimate,
-  });
-
-  return normalizeRoomSnapshot(response);
-}
-
 function normalizeNoteInput(note: string | null): string | null {
   const trimmedNote = note?.trim() ?? '';
   if (!trimmedNote) {
@@ -391,16 +375,6 @@ export async function completeRoundAndStartNextRound(
     p_round_id: roundId,
     p_final_estimate: trimmedEstimate,
     p_note: normalizedNote,
-  });
-
-  return normalizeRoomSnapshot(response);
-}
-
-export async function startNextRound(roomId: string, roundId: string): Promise<RoomSnapshot> {
-  await ensureAnonymousSession();
-  const response = await rpc<RoomSnapshotJson>('start_next_round', {
-    p_room_id: roomId,
-    p_round_id: roundId,
   });
 
   return normalizeRoomSnapshot(response);

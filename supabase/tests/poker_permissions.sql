@@ -2,7 +2,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(46);
+SELECT plan(50);
 
 CREATE TEMP TABLE poker_test_state (
   room_id uuid,
@@ -437,6 +437,26 @@ SELECT is(
   (SELECT count(*)::bigint FROM public.rounds WHERE room_id = (SELECT room_id FROM archive_case) AND status = 'archived'),
   20::bigint,
   'archived rounds are trimmed to newest 20'
+);
+
+SELECT ok(
+  NOT has_function_privilege('authenticated', 'public.archive_round(uuid, uuid, text)', 'EXECUTE'),
+  'authenticated cannot execute the legacy archive RPC'
+);
+
+SELECT ok(
+  NOT has_function_privilege('authenticated', 'public.start_next_round(uuid, uuid)', 'EXECUTE'),
+  'authenticated cannot execute the legacy next-round RPC'
+);
+
+SELECT ok(
+  has_function_privilege('authenticated', 'public.update_round_outcome(uuid, uuid, text, text)', 'EXECUTE'),
+  'authenticated members can invoke the host-guarded outcome RPC'
+);
+
+SELECT ok(
+  has_function_privilege('authenticated', 'public.complete_round_and_start_next_round(uuid, uuid, text, text)', 'EXECUTE'),
+  'authenticated members can invoke the host-guarded atomic next-round RPC'
 );
 
 SELECT * FROM finish();
