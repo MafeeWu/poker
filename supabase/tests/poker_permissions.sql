@@ -2,7 +2,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(18);
+SELECT plan(24);
 
 CREATE TEMP TABLE poker_test_state (
   room_id uuid,
@@ -71,6 +71,16 @@ SELECT is(
   'user A submits a vote'
 );
 
+SELECT is(
+  (
+    SELECT (to_jsonb(rm)->>'last_voted_round_id')::uuid
+    FROM public.room_members rm
+    WHERE rm.id = (SELECT user_a_member_id FROM poker_test_state)
+  ),
+  (SELECT round_id FROM poker_test_state),
+  'successful vote updates the member Realtime marker'
+);
+
 RESET ROLE;
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '22222222-2222-4222-8222-222222222222', true);
@@ -78,6 +88,36 @@ SELECT is(
   (SELECT count(*)::bigint FROM public.votes WHERE round_id = (SELECT round_id FROM poker_test_state) AND member_id = (SELECT user_a_member_id FROM poker_test_state)),
   0::bigint,
   'user B cannot read user A hidden vote while voting'
+);
+
+SELECT is(
+  (
+    SELECT member->>'hasVoted'
+    FROM jsonb_array_elements(
+      build_room_snapshot(
+        (SELECT room_id FROM poker_test_state),
+        '22222222-2222-4222-8222-222222222222'::uuid
+      )->'members'
+    ) AS member
+    WHERE member->>'id' = (SELECT user_a_member_id::text FROM poker_test_state)
+  ),
+  'true',
+  'another member can see that the host voted'
+);
+
+SELECT is(
+  (
+    SELECT member->>'vote'
+    FROM jsonb_array_elements(
+      build_room_snapshot(
+        (SELECT room_id FROM poker_test_state),
+        '22222222-2222-4222-8222-222222222222'::uuid
+      )->'members'
+    ) AS member
+    WHERE member->>'id' = (SELECT user_a_member_id::text FROM poker_test_state)
+  ),
+  NULL,
+  'another member cannot see the host card before reveal'
 );
 
 SELECT is(
@@ -114,6 +154,51 @@ SELECT is(
   (SELECT count(*)::bigint FROM public.votes WHERE round_id = (SELECT round_id FROM poker_test_state) AND member_id = (SELECT user_a_member_id FROM poker_test_state)),
   1::bigint,
   'user B can read revealed votes'
+);
+
+SELECT is(
+  (
+    SELECT member->>'vote'
+    FROM jsonb_array_elements(
+      build_room_snapshot(
+        (SELECT room_id FROM poker_test_state),
+        '22222222-2222-4222-8222-222222222222'::uuid
+      )->'members'
+    ) AS member
+    WHERE member->>'id' = (SELECT user_a_member_id::text FROM poker_test_state)
+  ),
+  '3',
+  'revealed snapshot exposes the host card to members'
+);
+
+SELECT is(
+  (
+    SELECT member->>'hasVoted'
+    FROM jsonb_array_elements(
+      build_room_snapshot(
+        (SELECT room_id FROM poker_test_state),
+        '22222222-2222-4222-8222-222222222222'::uuid
+      )->'members'
+    ) AS member
+    WHERE member->>'id' = (SELECT user_b_member_id::text FROM poker_test_state)
+  ),
+  'false',
+  'observer remains unsubmitted after reveal'
+);
+
+SELECT is(
+  (
+    SELECT member->>'vote'
+    FROM jsonb_array_elements(
+      build_room_snapshot(
+        (SELECT room_id FROM poker_test_state),
+        '22222222-2222-4222-8222-222222222222'::uuid
+      )->'members'
+    ) AS member
+    WHERE member->>'id' = (SELECT user_b_member_id::text FROM poker_test_state)
+  ),
+  NULL,
+  'observer has no card after reveal'
 );
 
 SELECT is(
