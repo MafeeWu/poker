@@ -33,15 +33,16 @@ function votingSnapshot(overrides: Partial<RoomSnapshot> = {}): RoomSnapshot {
     },
     myMemberId: 'member-1',
     members: [
-      { id: 'member-host', nickname: 'Host', role: 'host', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true },
-      { id: 'member-1', nickname: 'You', role: 'voter', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true },
-      { id: 'member-2', nickname: 'Other', role: 'voter', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true },
+      { id: 'member-host', nickname: 'Host', role: 'host', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true, hasVoted: false, vote: null },
+      { id: 'member-1', nickname: 'You', role: 'voter', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true, hasVoted: true, vote: null },
+      { id: 'member-2', nickname: 'Other', role: 'voter', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true, hasVoted: false, vote: null },
     ],
     round: {
       id: 'round-1',
       number: 1,
       status: 'voting',
       finalEstimate: null,
+      note: null,
       startedAt: '2024-01-01T00:00:00.000Z',
       revealedAt: null,
       archivedAt: null,
@@ -49,7 +50,20 @@ function votingSnapshot(overrides: Partial<RoomSnapshot> = {}): RoomSnapshot {
     myVote: null,
     submittedCount: 1,
     distribution: null,
-    recentRounds: [],
+    recentRounds: [{
+      id: 'round-0',
+      number: 0,
+      status: 'archived',
+      finalEstimate: '3',
+      note: 'Earlier round',
+      startedAt: '2023-12-31T00:00:00.000Z',
+      revealedAt: '2023-12-31T00:05:00.000Z',
+      archivedAt: '2023-12-31T00:06:00.000Z',
+      distribution: {
+        '0': 0, '½': 0, '1': 0, '2': 0, '3': 1, '5': 0, '8': 0,
+        '13': 0, '21': 0, '34': 0, '55': 0, '∞': 0, '?': 0,
+      },
+    }],
   };
 
   return { ...base, ...overrides };
@@ -57,11 +71,17 @@ function votingSnapshot(overrides: Partial<RoomSnapshot> = {}): RoomSnapshot {
 
 function revealedSnapshot(): RoomSnapshot {
   return votingSnapshot({
+    members: [
+      { id: 'member-host', nickname: 'Host', role: 'host', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true, hasVoted: true, vote: '5' },
+      { id: 'member-1', nickname: 'You', role: 'voter', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true, hasVoted: true, vote: '5' },
+      { id: 'member-2', nickname: 'Other', role: 'voter', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true, hasVoted: true, vote: '8' },
+    ],
     round: {
       id: 'round-1',
       number: 1,
       status: 'revealed',
       finalEstimate: '5',
+      note: null,
       startedAt: '2024-01-01T00:00:00.000Z',
       revealedAt: '2024-01-01T00:05:00.000Z',
       archivedAt: null,
@@ -95,6 +115,7 @@ describe('room UI', () => {
 
   it('marks a selected card without revealing another member vote', () => {
     render(<RoomPage roomCode="AB12CD34" initialSnapshot={votingSnapshot({ myVote: '5' })} />);
+    expect(screen.getByRole('main')).toHaveAttribute('data-theme', 'arcade');
     expect(screen.getByRole('button', { name: /5/i })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByText(/other member.*5/i)).not.toBeInTheDocument();
   });
@@ -102,8 +123,8 @@ describe('room UI', () => {
   it('does not render voting controls for an observer', () => {
     render(<RoomPage roomCode="AB12CD34" initialSnapshot={votingSnapshot({
       members: [
-        { id: 'member-host', nickname: 'Host', role: 'host', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true },
-        { id: 'member-1', nickname: 'You', role: 'observer', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true },
+        { id: 'member-host', nickname: 'Host', role: 'host', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true, hasVoted: false, vote: null },
+        { id: 'member-1', nickname: 'You', role: 'observer', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true, hasVoted: false, vote: null },
       ],
       myMemberId: 'member-1',
     })} />);
@@ -131,7 +152,7 @@ describe('room UI', () => {
     expect(screen.getByLabelText(/final estimate/i)).toHaveAttribute('data-testid', 'final-estimate');
 
     rerender(<RoomPage roomCode={snapshot.room.code} initialSnapshot={votingSnapshot({ myMemberId: 'member-host' })} />);
-    expect(screen.getByTestId('reveal-button')).toBeInTheDocument();
+    expect(screen.getByTestId('reveal-button')).toHaveClass('arcade-button');
   });
 
   it('shows reconnecting status without claiming a successful vote', () => {
@@ -168,8 +189,8 @@ describe('room UI', () => {
   it('renders host controls only for the host role', () => {
     render(<RoomPage roomCode="AB12CD34" initialSnapshot={votingSnapshot({
       members: [
-        { id: 'member-host', nickname: 'Host', role: 'host', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true },
-        { id: 'member-1', nickname: 'You', role: 'voter', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true },
+        { id: 'member-host', nickname: 'Host', role: 'host', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true, hasVoted: false, vote: null },
+        { id: 'member-1', nickname: 'You', role: 'voter', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true, hasVoted: false, vote: null },
       ],
       myMemberId: 'member-1',
     })} />);
@@ -232,6 +253,7 @@ describe('room UI', () => {
         number: 1,
         status: 'archived',
         finalEstimate: '5',
+        note: null,
         startedAt: '2024-01-01T00:00:00.000Z',
         revealedAt: '2024-01-01T00:05:00.000Z',
         archivedAt: '2024-01-01T00:06:00.000Z',

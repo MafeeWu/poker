@@ -22,6 +22,7 @@ export type MemberRecordRow = {
   joined_at: string;
   last_seen_at: string;
   online: boolean;
+  last_voted_round_id: string | null;
 };
 
 export type RoundRecordRow = {
@@ -29,12 +30,39 @@ export type RoundRecordRow = {
   round_number: number;
   status: RoomStatus;
   final_estimate: string | null;
+  note: string | null;
   started_at: string;
   revealed_at: string | null;
   archived_at: string | null;
 };
 
 export type ArchivedRoundRecordRow = RoundRecordRow & {
+  distribution: VoteDistribution;
+};
+
+export type MemberRecordJson = {
+  id: string;
+  nickname: string;
+  role: MemberRole;
+  joinedAt: string;
+  lastSeenAt: string;
+  online: boolean;
+  hasVoted: boolean;
+  vote: VoteValue | null;
+};
+
+export type RoundRecordJson = {
+  id: string;
+  number: number;
+  status: RoomStatus;
+  finalEstimate: string | null;
+  note: string | null;
+  startedAt: string;
+  revealedAt: string | null;
+  archivedAt: string | null;
+};
+
+export type ArchivedRoundRecordJson = RoundRecordJson & {
   distribution: VoteDistribution;
 };
 
@@ -48,27 +76,12 @@ export type RoomSnapshotJson = {
     createdAt: string;
   };
   myMemberId?: string;
-  members: Array<{
-    id: string;
-    nickname: string;
-    role: MemberRole;
-    joinedAt: string;
-    lastSeenAt: string;
-    online: boolean;
-  }>;
-  round: {
-    id: string;
-    number: number;
-    status: RoomStatus;
-    finalEstimate: string | null;
-    startedAt: string;
-    revealedAt: string | null;
-    archivedAt: string | null;
-  };
+  members: MemberRecordJson[];
+  round: RoundRecordJson;
   myVote: VoteValue | null;
   submittedCount?: number;
   distribution: VoteDistribution | null;
-  recentRounds: Array<ArchivedRoundRecordRow>;
+  recentRounds: ArchivedRoundRecordJson[];
 };
 
 export type Database = {
@@ -121,6 +134,24 @@ export type Database = {
       };
       start_next_round: {
         Args: { p_room_id: string; p_round_id: string };
+        Returns: RoomSnapshotJson;
+      };
+      update_round_outcome: {
+        Args: {
+          p_room_id: string;
+          p_round_id: string;
+          p_final_estimate: string | null;
+          p_note: string | null;
+        };
+        Returns: RoomSnapshotJson;
+      };
+      complete_round_and_start_next_round: {
+        Args: {
+          p_room_id: string;
+          p_round_id: string;
+          p_final_estimate: string;
+          p_note: string | null;
+        };
         Returns: RoomSnapshotJson;
       };
       transfer_host: {

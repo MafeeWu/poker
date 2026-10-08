@@ -20,6 +20,8 @@ export type MemberRecord = {
   joinedAt: string;
   lastSeenAt: string;
   online: boolean;
+  hasVoted: boolean;
+  vote: VoteValue | null;
 };
 
 export type RoundRecord = {
@@ -27,6 +29,7 @@ export type RoundRecord = {
   number: number;
   status: 'voting' | 'revealed' | 'archived';
   finalEstimate: string | null;
+  note: string | null;
   startedAt: string;
   revealedAt: string | null;
   archivedAt: string | null;
@@ -99,6 +102,14 @@ function nullableString(value: unknown, field: string): string | null {
   return value;
 }
 
+function nullableNote(value: unknown, field: string): string | null {
+  const note = nullableString(value, field);
+  if (note !== null && Array.from(note).length > 240) {
+    throw new Error(`Invalid snapshot field: ${field}`);
+  }
+  return note;
+}
+
 function validateDistribution(value: unknown, field: string): VoteDistribution {
   if (!isRecord(value)) {
     throw new Error(`Invalid snapshot field: ${field}`);
@@ -111,9 +122,17 @@ function validateDistribution(value: unknown, field: string): VoteDistribution {
   return distribution;
 }
 
-function normalizeMember(value: unknown, index: number): MemberRecord {
+function normalizeMember(value: unknown, index: number, roundStatus: RoundRecord['status']): MemberRecord {
   if (!isRecord(value)) {
     throw new Error(`Invalid snapshot field: members[${index}]`);
+  }
+
+  const vote = value.vote;
+  if (vote !== null && (typeof vote !== 'string' || !FIBONACCI_CARDS.includes(vote as VoteValue))) {
+    throw new Error(`Invalid snapshot field: members[${index}].vote`);
+  }
+  if (roundStatus === 'voting' && vote !== null) {
+    throw new Error(`Invalid snapshot field: members[${index}].vote`);
   }
 
   return {
@@ -125,6 +144,8 @@ function normalizeMember(value: unknown, index: number): MemberRecord {
     joinedAt: requiredString(value.joinedAt, `members[${index}].joinedAt`),
     lastSeenAt: requiredString(value.lastSeenAt, `members[${index}].lastSeenAt`),
     online: requiredBoolean(value.online, `members[${index}].online`),
+    hasVoted: requiredBoolean(value.hasVoted, `members[${index}].hasVoted`),
+    vote: vote as VoteValue | null,
   };
 }
 
@@ -142,6 +163,7 @@ function normalizeRound(value: unknown, field: string): RoundRecord {
     number: requiredNumber(value.number, `${field}.number`),
     status,
     finalEstimate: nullableString(value.finalEstimate, `${field}.finalEstimate`),
+    note: nullableNote(value.note, `${field}.note`),
     startedAt: requiredString(value.startedAt, `${field}.startedAt`),
     revealedAt: nullableString(value.revealedAt, `${field}.revealedAt`),
     archivedAt: nullableString(value.archivedAt, `${field}.archivedAt`),
@@ -175,6 +197,7 @@ export function normalizeRoomSnapshot(snapshot: unknown): RoomSnapshot {
   if (!isRecord(snapshot.round)) {
     throw new Error('Invalid snapshot field: round');
   }
+  const round = normalizeRound(snapshot.round, 'round');
   if (typeof snapshot.myMemberId !== 'string' || !snapshot.myMemberId.trim()) {
     throw new Error('Invalid snapshot field: myMemberId');
   }
@@ -204,8 +227,8 @@ export function normalizeRoomSnapshot(snapshot: unknown): RoomSnapshot {
       createdAt: requiredString(room.createdAt, 'room.createdAt'),
     },
     myMemberId: snapshot.myMemberId,
-    members: membersValue.map((member, index) => normalizeMember(member, index)),
-    round: normalizeRound(snapshot.round, 'round'),
+    members: membersValue.map((member, index) => normalizeMember(member, index, round.status)),
+    round,
     myVote: snapshot.myVote as VoteValue | null,
     submittedCount: snapshot.submittedCount,
     distribution: snapshot.distribution === null ? null : validateDistribution(snapshot.distribution, 'distribution'),
@@ -301,6 +324,73 @@ export async function archiveRound(roomId: string, roundId: string, finalEstimat
     p_room_id: roomId,
     p_round_id: roundId,
     p_final_estimate: trimmedEstimate,
+  });
+
+  return normalizeRoomSnapshot(response);
+}
+
+function normalizeNoteInput(note: string | null): string | null {
+  const trimmedNote = note?.trim() ?? '';
+  if (!trimmedNote) {
+    return null;
+  }
+  if (Array.from(trimmedNote).length > 240) {
+    throw new Error('Note must be 240 characters or fewer');
+  }
+  return trimmedNote;
+}
+
+function normalizeFinalEstimate(finalEstimate: string, required: true): string;
+function normalizeFinalEstimate(finalEstimate: string | null, required: false): string | null;
+function normalizeFinalEstimate(finalEstimate: string | null, required: boolean): string | null {
+  const trimmedEstimate = finalEstimate?.trim() ?? '';
+  if (!trimmedEstimate) {
+    if (required) {
+      throw new Error('Final estimate is required');
+    }
+    if (finalEstimate !== null) {
+      throw new Error('Final estimate cannot be empty');
+    }
+    return null;
+  }
+  return trimmedEstimate;
+}
+
+export async function updateRoundOutcome(
+  roomId: string,
+  roundId: string,
+  finalEstimate: string | null,
+  note: string | null,
+): Promise<RoomSnapshot> {
+  const trimmedEstimate = normalizeFinalEstimate(finalEstimate, false);
+  const normalizedNote = normalizeNoteInput(note);
+
+  await ensureAnonymousSession();
+  const response = await rpc<RoomSnapshotJson>('update_round_outcome', {
+    p_room_id: roomId,
+    p_round_id: roundId,
+    p_final_estimate: trimmedEstimate,
+    p_note: normalizedNote,
+  });
+
+  return normalizeRoomSnapshot(response);
+}
+
+export async function completeRoundAndStartNextRound(
+  roomId: string,
+  roundId: string,
+  finalEstimate: string,
+  note: string | null,
+): Promise<RoomSnapshot> {
+  const trimmedEstimate = normalizeFinalEstimate(finalEstimate, true);
+  const normalizedNote = normalizeNoteInput(note);
+
+  await ensureAnonymousSession();
+  const response = await rpc<RoomSnapshotJson>('complete_round_and_start_next_round', {
+    p_room_id: roomId,
+    p_round_id: roundId,
+    p_final_estimate: trimmedEstimate,
+    p_note: normalizedNote,
   });
 
   return normalizeRoomSnapshot(response);

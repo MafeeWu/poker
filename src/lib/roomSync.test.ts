@@ -29,6 +29,8 @@ const snapshot = {
       joinedAt: '2026-09-24T00:00:00.000Z',
       lastSeenAt: '2026-09-24T00:00:00.000Z',
       online: true,
+      hasVoted: false,
+      vote: null,
     },
   ],
   round: {
@@ -36,6 +38,7 @@ const snapshot = {
     number: 1,
     status: 'voting',
     finalEstimate: null,
+    note: null,
     startedAt: '2026-09-24T00:00:00.000Z',
     revealedAt: null,
     archivedAt: null,
@@ -43,7 +46,20 @@ const snapshot = {
   myVote: null,
   submittedCount: 1,
   distribution: null,
-  recentRounds: [],
+  recentRounds: [{
+    id: 'round-0',
+    number: 0,
+    status: 'archived',
+    finalEstimate: '3',
+    note: 'Earlier round',
+    startedAt: '2026-09-23T00:00:00.000Z',
+    revealedAt: '2026-09-23T00:05:00.000Z',
+    archivedAt: '2026-09-23T00:06:00.000Z',
+    distribution: {
+      '0': 0, '½': 0, '1': 0, '2': 0, '3': 1, '5': 0, '8': 0,
+      '13': 0, '21': 0, '34': 0, '55': 0, '∞': 0, '?': 0,
+    },
+  }],
 };
 
 describe('roomSync', () => {
@@ -79,8 +95,17 @@ describe('roomSync', () => {
     expect(onConnectionChange).toHaveBeenCalledWith('connecting');
     expect(onConnectionChange).toHaveBeenCalledWith('connected');
 
-    const tableHandler = handlers['postgres_changes:rooms'];
+    expect(channel.on).toHaveBeenCalledWith('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'room_members',
+      filter: 'room_id=eq.room-1',
+    }, expect.any(Function));
+    expect(handlers['postgres_changes:votes']).toBeUndefined();
+
+    const tableHandler = handlers['postgres_changes:room_members'];
     expect(tableHandler).toBeTypeOf('function');
+    onSnapshot.mockClear();
     tableHandler();
 
     await vi.waitFor(() => {
