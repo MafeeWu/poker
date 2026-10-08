@@ -504,3 +504,151 @@ p {
     scroll-snap-align: start;
   }
 }
+
+.room-shell[data-theme="arcade"] .table-shell {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.room-shell[data-theme="arcade"] .table-panel {
+  display: grid;
+  gap: 1.5rem;
+  min-height: 0;
+  overflow: visible;
+}
+
+.room-shell[data-theme="arcade"] .member-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.room-shell[data-theme="arcade"] .member-grid h2 {
+  color: #fff0c9;
+  font-family: "Arial Black", "Trebuchet MS", sans-serif;
+  font-size: 1rem;
+  text-transform: uppercase;
+}
+
+.room-shell[data-theme="arcade"] .member-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.room-shell[data-theme="arcade"] .member-card {
+  display: grid;
+  align-content: start;
+  gap: 0.45rem;
+  min-width: 0;
+  min-height: 7.5rem;
+  padding: 0.65rem;
+  border: 2px solid #111319;
+  border-radius: 10px;
+  background: linear-gradient(155deg, #fff4d8, #ead6a9);
+  box-shadow: 0 3px 0 #101116;
+  color: var(--ink);
+}
+
+.room-shell[data-theme="arcade"] .member-card--voted {
+  background: linear-gradient(155deg, #edffae, #b5dd55);
+}
+
+.room-shell[data-theme="arcade"] .member-card--pending {
+  background: linear-gradient(155deg, #fff0bc, #edc342);
+}
+
+.room-shell[data-theme="arcade"] .member-card--observer {
+  background: linear-gradient(155deg, #ebe5f1, #b9a8c8);
+}
+
+.room-shell[data-theme="arcade"] .member-card-heading,
+.room-shell[data-theme="arcade"] .member-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.room-shell[data-theme="arcade"] .member-card-heading strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #17171c;
+}
+
+.room-shell[data-theme="arcade"] .member-role,
+.room-shell[data-theme="arcade"] .member-online-status,
+.room-shell[data-theme="arcade"] .member-vote-status {
+  color: #28251f;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.room-shell[data-theme="arcade"] .member-role {
+  padding: 0.14rem 0.35rem;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+}
+
+.room-shell[data-theme="arcade"] .member-vote-card {
+  display: grid;
+  width: 2.25rem;
+  height: 3rem;
+  place-items: center;
+  justify-self: center;
+  border: 2px solid #111319;
+  border-radius: 6px;
+  box-shadow: 2px 3px 0 #111319;
+  font-family: "Arial Black", "Trebuchet MS", sans-serif;
+  font-size: 1.15rem;
+  font-weight: 1000;
+}
+
+.room-shell[data-theme="arcade"] .member-vote-card--back {
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.22) 1px, transparent 1.5px),
+    linear-gradient(145deg, #ed544e, #a52d42);
+  background-size: 8px 8px, auto;
+  color: #f3ed79;
+}
+
+.room-shell[data-theme="arcade"] .member-vote-card--front {
+  background: linear-gradient(150deg, #fff8e8, #e8d5aa);
+  color: #17171c;
+}
+
+.room-shell[data-theme="arcade"] .distribution-chart {
+  align-items: stretch;
+  min-height: 10rem;
+}
+
+.room-shell[data-theme="arcade"] .distribution-bar-wrap {
+  grid-template-rows: 1fr auto auto;
+  align-items: end;
+  min-width: 0;
+}
+
+.room-shell[data-theme="arcade"] .distribution-bar-wrap .distribution-bar {
+  align-self: end;
+  min-height: 0;
+}
+
+.room-shell[data-theme="arcade"] .distribution-count {
+  color: #fff0c9;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.room-shell[data-theme="arcade"] .vote-distribution + .round-status {
+  color: #fff0c9;
+  font-weight: 900;
+}
+
+@media (max-width: 420px) {
+  .room-shell[data-theme="arcade"] .member-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

@@ -8,9 +8,10 @@ import { readRecentRooms, saveRecentRoom } from './roomCopy';
 import { CardDeck } from './CardDeck';
 import { ConnectionStatus, type ConnectionStatusValue } from './ConnectionStatus';
 import { HostControls } from './HostControls';
-import { MemberRail } from './MemberRail';
+import { MemberGrid } from './MemberGrid';
 import { RoomHeader } from './RoomHeader';
 import { RoundBoard } from './RoundBoard';
+import { VoteDistribution } from './VoteDistribution';
 import { RoomEntryForm } from '../home/RoomEntryForm';
 
 export type RoomPageProps = {
@@ -237,9 +238,12 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
               onSelect={handleVote}
             />
           ) : null}
+          <MemberGrid members={snapshot.members} roundStatus={snapshot.round.status} />
+          {snapshot.round.status !== 'voting' ? <VoteDistribution distribution={snapshot.distribution} /> : null}
+          {snapshot.round.status !== 'voting' && snapshot.round.finalEstimate ? (
+            <p className="round-status" data-testid="final-estimate-value">Final estimate: {snapshot.round.finalEstimate}</p>
+          ) : null}
         </section>
-
-        <MemberRail snapshot={snapshot} />
       </div>
 
       <HostControls

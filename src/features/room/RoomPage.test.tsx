@@ -131,15 +131,45 @@ describe('room UI', () => {
     expect(screen.queryByRole('group', { name: /fibonacci cards/i })).not.toBeInTheDocument();
   });
 
-  it('renders distribution only after the snapshot is revealed', () => {
+  it('keeps only round status in the round board', () => {
     const { rerender } = render(<RoundBoard snapshot={votingSnapshot()} />);
-    expect(screen.queryByRole('img', { name: /vote distribution/i })).not.toBeInTheDocument();
     expect(screen.getByTestId('round-status')).toHaveTextContent(/waiting for votes/i);
-    expect(screen.queryByTestId('distribution-bars')).not.toBeInTheDocument();
     rerender(<RoundBoard snapshot={revealedSnapshot()} />);
-    expect(screen.getByRole('img', { name: /vote distribution/i })).toBeInTheDocument();
     expect(screen.getByTestId('round-status')).toHaveTextContent(/revealed/i);
-    expect(screen.getByTestId('distribution-bars')).toBeVisible();
+    expect(screen.queryByTestId('distribution-bars')).not.toBeInTheDocument();
+  });
+
+  it('places the round and voting deck before the member grid inside the table', () => {
+    const { container } = render(<RoomPage roomCode="AB12CD34" initialSnapshot={votingSnapshot()} />);
+    const tablePanel = container.querySelector('.table-panel');
+    const roundBoard = screen.getByTestId('round-board');
+    const deck = screen.getByRole('group', { name: /fibonacci cards/i });
+    const memberGrid = screen.getByTestId('member-grid');
+
+    expect(tablePanel).toContainElement(roundBoard);
+    expect(tablePanel).toContainElement(deck);
+    expect(tablePanel).toContainElement(memberGrid);
+    expect(roundBoard.compareDocumentPosition(deck) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(deck.compareDocumentPosition(memberGrid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByTestId('member-rail')).not.toBeInTheDocument();
+  });
+
+  it('places the revealed distribution after the member grid inside the table', () => {
+    const { container } = render(<RoomPage roomCode="AB12CD34" initialSnapshot={revealedSnapshot()} />);
+    const tablePanel = container.querySelector('.table-panel');
+    const memberGrid = screen.getByTestId('member-grid');
+    const distribution = screen.getByRole('group', { name: 'Vote distribution' });
+
+    expect(tablePanel).toContainElement(memberGrid);
+    expect(tablePanel).toContainElement(distribution);
+    expect(memberGrid.compareDocumentPosition(distribution) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('omits the distribution while votes remain hidden', () => {
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={votingSnapshot()} />);
+
+    expect(screen.queryByRole('group', { name: 'Vote distribution' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('member-grid')).toBeInTheDocument();
   });
 
   it('exposes stable room identity, membership, connection, and host control selectors', () => {
@@ -177,11 +207,12 @@ describe('room UI', () => {
       }),
     });
 
-    render(<RoundBoard snapshot={revealedSnapshot()} />);
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={{ ...revealedSnapshot(), myMemberId: 'member-host' }} />);
 
-    expect(screen.getByRole('img', { name: /vote distribution/i })).toBeInTheDocument();
-    expect(screen.getByText(/final estimate: 5/i)).toBeInTheDocument();
-    expect(screen.getByText(/5: 2/i)).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Vote distribution' })).toBeInTheDocument();
+    expect(screen.getByLabelText(/final estimate/i)).toHaveValue('5');
+    expect(screen.getByTestId('final-estimate-value')).toHaveTextContent('Final estimate: 5');
+    expect(screen.getByRole('img', { name: '5 votes: 2' })).toBeInTheDocument();
 
     Object.defineProperty(window, 'matchMedia', { writable: true, value: originalMatchMedia });
   });
