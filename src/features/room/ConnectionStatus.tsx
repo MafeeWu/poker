@@ -18,7 +18,7 @@ export function ConnectionStatus({ status }: { status: ConnectionStatusValue }) 
   };
 
   return (
-    <div aria-live="polite">
+    <div data-testid="connection-status" aria-live="polite">
       <StatusPill tone={tones[status]}>{labels[status]}</StatusPill>
     </div>
   );

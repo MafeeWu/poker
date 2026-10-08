@@ -1,244 +1,374 @@
 import { createClient } from '@supabase/supabase-js';
 import { performance } from 'node:perf_hooks';
+import { createOnlineRoomFixture } from './room-fixtures.mjs';
+import { loadE2EEnv, verifyLocalSupabase } from './supabase-env.mjs';
+
+const EXPECTED_MEMBER_COUNT = 100;
+const VOTER_COUNT = 90;
+const OBSERVER_COUNT = 9;
+const VOTE_VALUE = '5';
 
 export function validateRuntimeConfig(env = process.env) {
   const required = ['SUPABASE_URL', 'SUPABASE_ANON_KEY'];
   const missing = required.filter((key) => !env[key] || !String(env[key]).trim());
-
   if (missing.length > 0) {
     throw new Error(
       `Missing Supabase runtime configuration: ${missing.join(', ')}. Set SUPABASE_URL and SUPABASE_ANON_KEY before running the room load probe.`,
     );
   }
 
-  return {
+  const config = {
     SUPABASE_URL: String(env.SUPABASE_URL).trim(),
     SUPABASE_ANON_KEY: String(env.SUPABASE_ANON_KEY).trim(),
   };
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(config.SUPABASE_URL);
+  } catch {
+    throw new Error('The room load probe requires a valid local Supabase HTTP URL.');
+  }
+  if (!['http:', 'https:'].includes(parsedUrl.protocol)
+    || !['127.0.0.1', 'localhost', '::1'].includes(parsedUrl.hostname.toLowerCase().replace(/^\[|\]$/g, ''))) {
+    throw new Error('The room load probe requires local Supabase at a loopback URL.');
+  }
+
+  return config;
+}
+
+function unwrap(result, operation) {
+  if (!result || typeof result !== 'object') {
+    throw new Error(`${operation} returned an invalid response.`);
+  }
+  if (result.error) {
+    throw new Error(`${operation} failed: ${result.error.message || String(result.error)}`);
+  }
+  if (!result.data || typeof result.data !== 'object') {
+    throw new Error(`${operation} returned no data.`);
+  }
+  return result.data;
+}
+
+function expectedVoteDistribution(snapshot) {
+  return snapshot?.distribution
+    && typeof snapshot.distribution === 'object'
+    && snapshot.distribution[VOTE_VALUE] === VOTER_COUNT + 1
+    && Object.values(snapshot.distribution).reduce((total, count) => total + count, 0) === VOTER_COUNT + 1;
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function subscribe(channel, description, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(`${description} subscription timed out after ${timeoutMs} ms.`)), timeoutMs);
+    try {
+      channel.subscribe((status, error) => {
+        if (status === 'SUBSCRIBED') {
+          clearTimeout(timeout);
+          resolve();
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          clearTimeout(timeout);
+          reject(new Error(`${description} subscription failed: ${error?.message || status}`));
+        }
+      });
+    } catch (error) {
+      clearTimeout(timeout);
+      reject(error);
+    }
+  });
+}
+
+function average(values) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+}
+
+function countFailedOperations(error) {
+  if (error instanceof AggregateError) {
+    return error.errors.reduce((count, child) => count + countFailedOperations(child), 0);
+  }
+  return 1;
 }
 
 export function createLoadProbe({
-  supabase = null,
   logger = console,
   concurrency = 10,
   createClientFactory = createClient,
   env = process.env,
+  propagationTimeoutMs = 30_000,
+  subscriptionTimeoutMs = 10_000,
 } = {}) {
   return async function runLoadProbe({
-    roomCode = 'POKER101',
-    memberCount = 100,
+    roomCode: expectedRoomCode = env.ROOM_CODE,
+    memberCount = Number(env.MEMBER_COUNT ?? EXPECTED_MEMBER_COUNT),
     hostNickname = 'Host',
     voterNicknamePrefix = 'Voter',
     observerNicknamePrefix = 'Observer',
   } = {}) {
-    if (!supabase) {
-      const config = validateRuntimeConfig(env);
-      const client = createClientFactory(config.SUPABASE_URL, config.SUPABASE_ANON_KEY, {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-          detectSessionInUrl: false,
-        },
-      });
-      return runLoadProbeWithClient({
-        client,
-        roomCode,
-        memberCount,
+    if (memberCount !== EXPECTED_MEMBER_COUNT) {
+      throw new Error(`The load probe requires exactly 100 members; received ${memberCount}.`);
+    }
+    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 10) {
+      throw new Error('Load probe concurrency must be an integer from 1 through 10.');
+    }
+    if (!Number.isInteger(propagationTimeoutMs) || propagationTimeoutMs < 1) {
+      throw new Error('Reveal propagation timeout must be a positive integer.');
+    }
+
+    const config = validateRuntimeConfig(env);
+    let fixture;
+    try {
+      fixture = await createOnlineRoomFixture({
+        createClientFactory,
+        url: config.SUPABASE_URL,
+        anonKey: config.SUPABASE_ANON_KEY,
+        voterCount: VOTER_COUNT,
+        observerCount: OBSERVER_COUNT,
+        memberCount: EXPECTED_MEMBER_COUNT,
+        concurrency,
         hostNickname,
         voterNicknamePrefix,
         observerNicknamePrefix,
-        logger,
-        concurrency,
       });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Load probe failed: ${countFailedOperations(error)} failed operation(s). ${message}`, { cause: error });
     }
 
-    return runLoadProbeWithClient({
-      client: supabase,
-      roomCode,
-      memberCount,
-      hostNickname,
-      voterNicknamePrefix,
-      observerNicknamePrefix,
-      logger,
-      concurrency,
-    });
-  };
-}
+    const channels = [];
+    let capacityClient;
+    let capacityMemberId;
+    let result;
+    let primaryError;
+    const voteLatencyMs = [];
+    const revealWaits = [];
+    let revealStartedAt = 0;
 
-async function runLoadProbeWithClient({
-  client,
-  roomCode,
-  memberCount,
-  hostNickname,
-  voterNicknamePrefix,
-  observerNicknamePrefix,
-  logger,
-  concurrency,
-}) {
-  const joinTimings = [];
-  const voteTimings = [];
-  const revealTimings = [];
-  const createdChannels = [];
-  let rejectedJoins = 0;
-  let successfulJoins = 0;
-  let failedOperations = 0;
-  let totalRevealLatencyMs = 0;
-
-  const isExpectedCapacityError = (error) => {
-    const message = error instanceof Error ? error.message : String(error);
-    return /room is full|max members|capacity|full/i.test(message);
-  };
-
-  async function createRoom() {
-    const started = performance.now();
-    const snapshot = await client.rpc('create_room', {
-      p_name: 'Sprint 24',
-      p_nickname: hostNickname,
-    });
-    successfulJoins += 1;
-    joinTimings.push({ phase: 'host-create', durationMs: performance.now() - started });
-    return snapshot;
-  }
-
-  async function joinMember(p_nickname, p_role) {
-    const started = performance.now();
     try {
-      const snapshot = await client.rpc('join_room', {
-        p_code: roomCode,
-        p_nickname,
-        p_role,
-      });
-      successfulJoins += 1;
-      joinTimings.push({ phase: p_role, durationMs: performance.now() - started, nickname: p_nickname });
-      return snapshot;
-    } catch (error) {
-      rejectedJoins += 1;
-      if (!isExpectedCapacityError(error)) {
-        failedOperations += 1;
+      if (expectedRoomCode && String(expectedRoomCode).trim().toUpperCase() !== fixture.room.code) {
+        throw new Error(`Created room ${fixture.room.code} does not match requested ROOM_CODE ${expectedRoomCode}.`);
       }
-      logger.warn?.(`Rejected join request for ${p_nickname}: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
-  }
 
-  async function subscribeForRoom(roomId) {
-    const channel = client.channel(`room:${roomId}`);
-    createdChannels.push(channel);
-    const subscription = await channel.subscribe();
-    if (subscription.status !== 'SUBSCRIBED') {
-      throw new Error(`Realtime subscription did not establish for room ${roomId}`);
-    }
-    return channel;
-  }
+      capacityClient = createClientFactory(config.SUPABASE_URL, config.SUPABASE_ANON_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      });
+      const capacitySession = unwrap(await capacityClient.auth.signInAnonymously(), '101st member anonymous sign-in');
+      if (!capacitySession.user?.id) {
+        throw new Error('101st member anonymous sign-in returned no user.');
+      }
 
-  const room = await createRoom();
-  const roomId = room?.room?.id ?? room?.id ?? 'room-local';
-  const channel = await subscribeForRoom(roomId);
+      const rejectedJoin = await capacityClient.rpc('join_room', {
+        p_code: fixture.room.code,
+        p_nickname: 'Capacity check 101',
+        p_role: 'voter',
+      });
+      if (!rejectedJoin?.error) {
+        capacityMemberId = rejectedJoin?.data?.myMemberId;
+        throw new Error('The 101st member unexpectedly joined a room with 100 online members.');
+      }
+      if (!/room is full/i.test(String(rejectedJoin.error.message || rejectedJoin.error))) {
+        throw new Error(`The 101st join failed for an unexpected reason: ${rejectedJoin.error.message || String(rejectedJoin.error)}`);
+      }
 
-  const requestedMembers = Number(memberCount) || 100;
-  const targetMembers = Math.min(Math.max(1, requestedMembers), 100);
-  const guestJoinCount = Math.max(0, targetMembers - 1);
-  const joinTargets = [];
-  for (let index = 0; index < guestJoinCount; index += 1) {
-    const isObserver = index >= 90;
-    joinTargets.push({
-      nickname: isObserver ? `${observerNicknamePrefix} ${index - 89}` : `${voterNicknamePrefix} ${index + 1}`,
-      role: isObserver ? 'observer' : 'voter',
-    });
-  }
+      const roundId = fixture.round.id;
+      for (const member of fixture.members) {
+        const observedReveal = deferred();
+        const channel = member.client.channel(`room:${fixture.room.id}:${member.id}`);
+        channels.push(channel);
+        channel.on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'rounds', filter: `id=eq.${roundId}` },
+          () => {
+            void member.client.rpc('build_room_snapshot', {
+              p_room_id: fixture.room.id,
+              p_user_id: member.userId,
+            }).then((response) => {
+              const snapshot = unwrap(response, `Reveal snapshot for ${member.nickname}`);
+              if (snapshot.round?.status !== 'revealed' || !expectedVoteDistribution(snapshot)) {
+                throw new Error(`${member.nickname} did not receive the complete revealed distribution.`);
+              }
+              observedReveal.resolve({
+                memberId: member.id,
+                observedAt: performance.now(),
+                distribution: snapshot.distribution,
+              });
+            }).catch((error) => observedReveal.reject(error));
+          },
+        );
+        await subscribe(channel, `Room channel for ${member.nickname}`, subscriptionTimeoutMs);
+        revealWaits.push(observedReveal.promise);
+      }
 
-  for (let index = 0; index < joinTargets.length; index += concurrency) {
-    const batch = joinTargets.slice(index, index + concurrency);
-    const results = await Promise.allSettled(batch.map(({ nickname, role }) => joinMember(nickname, role)));
-    const failedBatch = results.filter((result) => result.status === 'rejected');
-    if (failedBatch.length > 0) {
-      failedOperations += failedBatch.length;
-    }
-  }
+      const maxConcurrentVotes = Math.min(concurrency, 10);
+      for (let offset = 0; offset < fixture.members.length; offset += maxConcurrentVotes) {
+        const batch = fixture.members.slice(offset, offset + maxConcurrentVotes).filter(({ role }) => role !== 'observer');
+        const settled = await Promise.allSettled(batch.map(async (member) => {
+          const startedAt = performance.now();
+          const response = unwrap(await member.client.rpc('submit_vote', {
+            p_room_id: fixture.room.id,
+            p_round_id: roundId,
+            p_value: VOTE_VALUE,
+          }), `Vote submission for ${member.nickname}`);
+          const duration = performance.now() - startedAt;
+          if (response.myVote !== VOTE_VALUE) {
+            throw new Error(`${member.nickname}'s vote was not returned in their snapshot.`);
+          }
+          voteLatencyMs.push(duration);
+        }));
+        const failures = settled.filter((entry) => entry.status === 'rejected');
+        if (failures.length > 0) {
+          throw new AggregateError(failures.map(({ reason }) => reason), 'One or more vote submissions failed.');
+        }
+      }
 
-  if (requestedMembers >= 100) {
-    try {
-      await joinMember(`${voterNicknamePrefix} 101`, 'voter');
+      const hiddenSnapshotResults = await Promise.all(fixture.members.map(async (member) => {
+        const { data, error } = await member.client.rpc('build_room_snapshot', {
+          p_room_id: fixture.room.id,
+          p_user_id: member.userId,
+        });
+        if (error) {
+          throw new Error(`Pre-Reveal snapshot for ${member.nickname} failed: ${error.message || String(error)}`);
+        }
+        return { member, snapshot: data };
+      }));
+      for (const { member, snapshot } of hiddenSnapshotResults) {
+        const expectedOwnVote = member.role === 'observer' ? null : VOTE_VALUE;
+        if (snapshot?.round?.status !== 'voting' || snapshot.distribution !== null || snapshot.myVote !== expectedOwnVote) {
+          throw new Error(`A hidden vote value was exposed in ${member.nickname}'s pre-Reveal snapshot.`);
+        }
+      }
+
+      fixture.assertHealthy();
+      revealStartedAt = performance.now();
+      const revealed = unwrap(await fixture.members[0].client.rpc('reveal_round', {
+        p_room_id: fixture.room.id,
+        p_round_id: roundId,
+      }), 'Reveal round');
+      const revealRpcLatencyMs = performance.now() - revealStartedAt;
+      if (revealed.round?.status !== 'revealed' || !expectedVoteDistribution(revealed)) {
+        throw new Error('The host did not receive the complete revealed vote distribution.');
+      }
+
+      let propagationTimeout;
+      const timedOut = new Promise((_, reject) => {
+        propagationTimeout = setTimeout(
+          () => reject(new Error(`Reveal did not propagate to all 100 members within ${propagationTimeoutMs} ms.`)),
+          propagationTimeoutMs,
+        );
+      });
+      let propagated;
+      try {
+        propagated = await Promise.race([Promise.all(revealWaits), timedOut]);
+      } finally {
+        clearTimeout(propagationTimeout);
+      }
+      if (propagated.length !== EXPECTED_MEMBER_COUNT) {
+        throw new Error(`Reveal reached ${propagated.length} members; expected exactly 100.`);
+      }
+
+      fixture.assertHealthy();
+      const successfulJoinLatencies = fixture.members.map(({ joinLatencyMs }) => joinLatencyMs);
+      result = {
+        success: true,
+        joinedMembers: fixture.members.length,
+        rejectedJoins: 1,
+        failedOperations: 0,
+        joinLatencyMs: average(successfulJoinLatencies),
+        voteLatencyMs: average(voteLatencyMs),
+        revealRpcLatencyMs,
+        revealLatencyMs: Math.max(...propagated.map(({ observedAt }) => observedAt - revealStartedAt)),
+        revealPropagationLatencyMs: Math.max(...propagated.map(({ observedAt }) => observedAt - revealStartedAt)),
+        revealedMembers: propagated.length,
+        hiddenSnapshotsChecked: hiddenSnapshotResults.length,
+        createdChannels: channels.length,
+      };
     } catch (error) {
-      logger.log(`Room capacity confirmation: ${error instanceof Error ? error.message : String(error)}`);
+      primaryError = error;
+    } finally {
+      const cleanupErrors = [];
+      if (capacityMemberId) {
+        try {
+          const member = await capacityClient.rpc('leave_room', {
+            p_room_id: fixture.room.id,
+            p_member_id: capacityMemberId,
+          });
+          if (member?.error) {
+            throw new Error(`Leaving the unexpectedly joined 101st member failed: ${member.error.message || String(member.error)}`);
+          }
+        } catch (error) {
+          if (capacityClient) {
+            cleanupErrors.push(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
+      }
+      const channelCleanup = await Promise.allSettled(
+        channels.map((channel) => Promise.resolve().then(() => channel.unsubscribe())),
+      );
+      cleanupErrors.push(...channelCleanup
+        .filter((entry) => entry.status === 'rejected')
+        .map(({ reason }) => reason instanceof Error ? reason : new Error(String(reason))));
+      if (capacityClient) {
+        try {
+          const result = await capacityClient.auth.signOut();
+          if (result?.error) {
+            throw new Error(`Capacity-check sign-out failed: ${result.error.message || String(result.error)}`);
+          }
+        } catch (error) {
+          cleanupErrors.push(error instanceof Error ? error : new Error(String(error)));
+        }
+      }
+      try {
+        await fixture.dispose();
+      } catch (error) {
+        cleanupErrors.push(error instanceof Error ? error : new Error(String(error)));
+      }
+      if (cleanupErrors.length > 0) {
+        const cleanupError = new AggregateError(cleanupErrors, 'Load probe cleanup failed.');
+        primaryError = primaryError
+          ? new AggregateError([primaryError, cleanupError], 'Load probe failed and cleanup was incomplete.')
+          : cleanupError;
+      }
     }
-  }
 
-  if (successfulJoins < 1 || successfulJoins > 100) {
-    throw new Error(`Unexpected member count: ${successfulJoins} successful members observed.`);
-  }
+    if (primaryError) {
+      const message = primaryError instanceof Error ? primaryError.message : String(primaryError);
+      throw new Error(`Load probe failed: ${countFailedOperations(primaryError)} failed operation(s). ${message}`, {
+        cause: primaryError,
+      });
+    }
+    if (!result) {
+      throw new Error('Load probe completed without a result.');
+    }
 
-  const voteStarted = performance.now();
-  const votedSnapshot = await client.rpc('submit_vote', {
-    p_room_id: roomId,
-    p_round_id: room.round?.id ?? room.round_id ?? 'round-1',
-    p_value: '5',
-  });
-  voteTimings.push({ phase: 'vote', durationMs: performance.now() - voteStarted, nickname: hostNickname });
-  if (!votedSnapshot || !votedSnapshot.myVote) {
-    throw new Error('Vote submission did not return a valid vote snapshot.');
-  }
-
-  const revealStarted = performance.now();
-  const revealed = await client.rpc('reveal_round', {
-    p_room_id: roomId,
-    p_round_id: room.round?.id ?? room.round_id ?? 'round-1',
-  });
-  totalRevealLatencyMs = performance.now() - revealStarted;
-  revealTimings.push({ phase: 'reveal', durationMs: totalRevealLatencyMs, members: successfulJoins });
-
-  if (!revealed || revealed.round?.status !== 'revealed') {
-    throw new Error('Room reveal did not transition to revealed state.');
-  }
-
-  if (revealed.distribution && revealed.distribution['5'] !== successfulJoins) {
-    throw new Error('Hidden vote leaked before reveal or distribution count is inconsistent.');
-  }
-
-  await channel.unsubscribe();
-
-  const summary = {
-    success: failedOperations === 0 && rejectedJoins <= 1,
-    joinedMembers: successfulJoins,
-    rejectedJoins,
-    failedOperations,
-    joinLatencyMs: joinTimings.length ? joinTimings.reduce((sum, entry) => sum + entry.durationMs, 0) / joinTimings.length : 0,
-    voteLatencyMs: voteTimings.length ? voteTimings.reduce((sum, entry) => sum + entry.durationMs, 0) / voteTimings.length : 0,
-    revealLatencyMs: revealTimings.length ? revealTimings.reduce((sum, entry) => sum + entry.durationMs, 0) / revealTimings.length : 0,
-    createdChannels: createdChannels.length,
+    logger.log(
+      `Load probe summary: ${result.joinedMembers} online members, ${result.rejectedJoins} capacity rejection, ${result.failedOperations} failed operations, ${result.joinLatencyMs.toFixed(1)} ms average join latency, ${result.voteLatencyMs.toFixed(1)} ms average vote latency, ${result.revealPropagationLatencyMs.toFixed(1)} ms maximum Reveal propagation latency across ${result.revealedMembers} members.`,
+    );
+    return result;
   };
-
-  logger.log(
-    `Load probe summary: ${summary.joinedMembers} members joined, ${summary.rejectedJoins} rejected, ${summary.joinLatencyMs.toFixed(1)} ms join latency, ${summary.voteLatencyMs.toFixed(1)} ms vote latency, ${summary.revealLatencyMs.toFixed(1)} ms reveal latency.`,
-  );
-
-  return summary;
 }
 
 export async function runLoadProbe() {
+  loadE2EEnv();
   const config = validateRuntimeConfig(process.env);
-  const client = createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
+  await verifyLocalSupabase({ url: config.SUPABASE_URL, anonKey: config.SUPABASE_ANON_KEY });
+  const probe = createLoadProbe({ env: { ...process.env, ...config } });
+  return probe({
+    roomCode: process.env.ROOM_CODE,
+    memberCount: Number(process.env.MEMBER_COUNT ?? EXPECTED_MEMBER_COUNT),
   });
-  const probe = createLoadProbe({ supabase: client });
-  return probe({ roomCode: process.env.ROOM_CODE || 'POKER101', memberCount: Number(process.env.MEMBER_COUNT || 100) });
 }
 
 const isDirectExecution = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
 
 if (isDirectExecution) {
-  runLoadProbe()
-    .then((result) => {
-      if (!result.success) {
-        process.exitCode = 1;
-      }
-    })
-    .catch((error) => {
-      console.error(error instanceof Error ? error.message : String(error));
-      process.exitCode = 1;
-    });
+  runLoadProbe().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
 }

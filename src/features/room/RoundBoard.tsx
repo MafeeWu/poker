@@ -7,7 +7,7 @@ export function RoundBoard({ snapshot }: { snapshot: RoomSnapshot }) {
         <div className="round-title">
           <h2>Round {snapshot.round.number}</h2>
         </div>
-        <p className="round-status">Waiting for votes…</p>
+        <p className="round-status" data-testid="round-status">Waiting for votes…</p>
       </section>
     );
   }
@@ -20,10 +20,10 @@ export function RoundBoard({ snapshot }: { snapshot: RoomSnapshot }) {
     <section className="round-board" aria-live="polite">
       <div className="round-title">
         <h2>Round {snapshot.round.number}</h2>
-        <span className="status-pill tone-success">Revealed</span>
+        <span className="status-pill tone-success" data-testid="round-status">Revealed</span>
       </div>
 
-      <div role="img" aria-label="Vote distribution" className="vote-distribution">
+      <div role="img" aria-label="Vote distribution" className="vote-distribution" data-testid="distribution-bars">
         <div className="distribution-chart">
           {values.map(([value, count], index) => {
             const barHeight = Math.max(10, (count / maxValue) * 100);
@@ -46,7 +46,7 @@ export function RoundBoard({ snapshot }: { snapshot: RoomSnapshot }) {
         </div>
       </div>
 
-      {snapshot.round.finalEstimate ? <p className="round-status">Final estimate: {snapshot.round.finalEstimate}</p> : null}
+      {snapshot.round.finalEstimate ? <p className="round-status" data-testid="final-estimate-value">Final estimate: {snapshot.round.finalEstimate}</p> : null}
     </section>
   );
 }

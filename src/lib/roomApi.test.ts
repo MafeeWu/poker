@@ -6,8 +6,10 @@ const env = vi.hoisted(() => {
   return {};
 });
 
-import { supabase } from './supabase';
+import { getSupabaseClient } from './supabase';
 import { createRoom, normalizeRoomSnapshot, submitVote } from './roomApi';
+
+const supabase = getSupabaseClient();
 
 const validSnapshot = {
   room: {

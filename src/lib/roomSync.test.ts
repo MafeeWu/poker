@@ -7,7 +7,9 @@ const env = vi.hoisted(() => {
 });
 
 import { fetchRoomSnapshot, subscribeToRoom } from './roomSync';
-import { supabase } from './supabase';
+import { getSupabaseClient } from './supabase';
+
+const supabase = getSupabaseClient();
 
 const snapshot = {
   room: {

@@ -6,23 +6,23 @@ export type CopyButtonProps = {
 };
 
 export function CopyButton({ value, label = 'Copy link' }: CopyButtonProps) {
-  const [copied, setCopied] = useState(false);
+  const [feedback, setFeedback] = useState<'copied' | 'error' | null>(null);
 
   useEffect(() => {
-    if (!copied) {
+    if (!feedback) {
       return;
     }
 
-    const handle = window.setTimeout(() => setCopied(false), 1500);
+    const handle = window.setTimeout(() => setFeedback(null), 1500);
     return () => window.clearTimeout(handle);
-  }, [copied]);
+  }, [feedback]);
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(value);
-      setCopied(true);
+      setFeedback('copied');
     } catch {
-      setCopied(false);
+      setFeedback('error');
     }
   };
 
@@ -31,9 +31,11 @@ export function CopyButton({ value, label = 'Copy link' }: CopyButtonProps) {
       <button type="button" className="copy-button" onClick={handleCopy}>
         {label}
       </button>
-      <span aria-live="polite" aria-atomic="true" className="sr-only">
-        {copied ? 'Copied' : 'Copied'}
-      </span>
+      {feedback ? (
+        <span role="status" aria-live="polite" aria-atomic="true" className="copy-feedback">
+          {feedback === 'copied' ? 'Copied' : 'Unable to copy link'}
+        </span>
+      ) : null}
     </div>
   );
 }

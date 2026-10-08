@@ -6,11 +6,13 @@ export function RoomHeader({ snapshot }: { snapshot: RoomSnapshot }) {
     <header className="room-header">
       <div>
         <p>{snapshot.room.name}</p>
-        <h1>Room {snapshot.room.code}</h1>
+        <h1>Room <span data-testid="room-code">{snapshot.room.code}</span></h1>
       </div>
       <div className="meta">
         <StatusPill tone="warning">{snapshot.round.status}</StatusPill>
-        <StatusPill tone="neutral">{snapshot.members.length} members</StatusPill>
+        <StatusPill tone="neutral">
+          <span data-testid="member-count">{snapshot.members.length} members</span>
+        </StatusPill>
       </div>
     </header>
   );

@@ -111,7 +111,7 @@ export function RoomEntryForm({ mode, onSuccess, initialRoomCode = '' }: RoomEnt
         </fieldset>
       )}
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? <p role="alert" data-testid={mode === 'join' ? 'join-error' : undefined}>{error}</p> : null}
 
       <button type="submit" className="action-button">{mode === 'create' ? 'Create' : 'Join'}</button>
     </form>

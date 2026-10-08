@@ -31,7 +31,7 @@ export function HostControls({ state, status, onReveal, onArchive, onNextRound, 
 
   return (
     <section>
-      {state.round.status === 'voting' ? <button type="button" onClick={onReveal} disabled={actionsUnavailable || pendingAction === 'reveal'}>Reveal</button> : null}
+      {state.round.status === 'voting' ? <button type="button" data-testid="reveal-button" onClick={onReveal} disabled={actionsUnavailable || pendingAction === 'reveal'}>Reveal</button> : null}
 
       {state.round.status === 'revealed' ? (
         <div>
@@ -39,6 +39,7 @@ export function HostControls({ state, status, onReveal, onArchive, onNextRound, 
             Final estimate
             <input
               type="text"
+              data-testid="final-estimate"
               value={finalEstimate}
               onChange={(event) => setFinalEstimate(event.target.value)}
             />

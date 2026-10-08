@@ -1,6 +1,6 @@
 import { FIBONACCI_CARDS, type VoteDistribution, type VoteValue } from '../domain/poker';
 import type { Database, RoomSnapshotJson } from './database.types';
-import { supabase } from './supabase';
+import { getSupabaseClient } from './supabase';
 
 export type JoinRole = 'voter' | 'observer';
 
@@ -214,7 +214,7 @@ export function normalizeRoomSnapshot(snapshot: unknown): RoomSnapshot {
 }
 
 async function rpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
-  const { data, error } = await supabase.rpc(name as keyof Database['public']['Functions'], args as never);
+  const { data, error } = await getSupabaseClient().rpc(name as keyof Database['public']['Functions'], args as never);
   if (error) {
     throw toError(error);
   }
@@ -222,7 +222,7 @@ async function rpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
 }
 
 export async function ensureAnonymousSession(): Promise<void> {
-  const { error } = await supabase.auth.signInAnonymously();
+  const { error } = await getSupabaseClient().auth.signInAnonymously();
   if (error) {
     throw toError(error);
   }
@@ -318,14 +318,15 @@ export async function transferHost(roomId: string, memberId: string): Promise<Ro
 }
 
 export async function fetchRoomSnapshot(roomId: string): Promise<RoomSnapshot> {
-  const { data: userData } = await supabase.auth.getUser();
+  const client = getSupabaseClient();
+  const { data: userData } = await client.auth.getUser();
   const userId = userData?.user?.id ?? '';
 
   if (!userId) {
     await ensureAnonymousSession();
   }
 
-  const { data: refreshedUserData } = await supabase.auth.getUser();
+  const { data: refreshedUserData } = await client.auth.getUser();
   const resolvedUserId = refreshedUserData?.user?.id ?? userId;
 
   const response = await rpc<RoomSnapshotJson>('build_room_snapshot', {

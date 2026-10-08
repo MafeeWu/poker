@@ -1,4 +1,6 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { vi } from 'vitest';
 import { Card } from './Card';
 import { CopyButton } from './CopyButton';
 import { InlineNotice } from './InlineNotice';
@@ -26,10 +28,32 @@ describe('visual components', () => {
     expect(screen.getByText(/room state is current/i)).toBeInTheDocument();
   });
 
-  it('announces copied state via aria-live', () => {
+  it('shows accessible copy feedback only after copying succeeds', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
     render(<CopyButton value="AB12CD34" label="Room link" />);
 
     expect(screen.getByRole('button', { name: /room link/i })).toBeInTheDocument();
-    expect(screen.getByText(/copied/i)).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /room link/i }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/copied/i);
+    expect(writeText).toHaveBeenCalledWith('AB12CD34');
+  });
+
+  it('shows visible error feedback when the browser rejects clipboard access', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error('clipboard unavailable')) },
+    });
+    render(<CopyButton value="AB12CD34" label="Room link" />);
+
+    await userEvent.click(screen.getByRole('button', { name: /room link/i }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/unable to copy link/i);
   });
 });

@@ -1,18 +1,8 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { defineConfig } from '@playwright/test';
+import { loadE2EEnv, requireE2EConfig } from './scripts/supabase-env.mjs';
 
-const envFile = path.resolve(process.cwd(), '.env.test');
-if (fs.existsSync(envFile)) {
-  for (const line of fs.readFileSync(envFile, 'utf8').split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) {
-      continue;
-    }
-    const [key, ...rest] = trimmed.split('=');
-    process.env[key] = rest.join('=');
-  }
-}
+loadE2EEnv();
+requireE2EConfig();
 
 export default defineConfig({
   testDir: './e2e',
@@ -23,7 +13,7 @@ export default defineConfig({
   webServer: {
     command: 'npm run dev -- --host 127.0.0.1 --port 4173',
     url: 'http://127.0.0.1:4173',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 120 * 1000,
   },
 });

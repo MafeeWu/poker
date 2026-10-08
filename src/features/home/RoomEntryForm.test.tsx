@@ -34,6 +34,7 @@ describe('RoomEntryForm', () => {
     await userEvent.type(screen.getByLabelText(/room code/i), 'AB12CD34');
     await userEvent.click(screen.getByRole('button', { name: /join/i }));
     expect(await screen.findByText('Room is full')).toBeInTheDocument();
+    expect(screen.getByTestId('join-error')).toHaveTextContent('Room is full');
     expect(screen.getByLabelText(/nickname/i)).toHaveValue('Mina');
   });
 });

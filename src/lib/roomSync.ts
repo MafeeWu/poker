@@ -1,6 +1,6 @@
 import type { RoomSnapshot } from './roomApi';
 import { fetchRoomSnapshot as fetchSnapshotApi } from './roomApi';
-import { supabase } from './supabase';
+import { getSupabaseClient } from './supabase';
 
 export type RoomSyncCallbacks = {
   onSnapshot(snapshot: RoomSnapshot): void;
@@ -15,6 +15,7 @@ export async function fetchRoomSnapshot(roomId: string): Promise<RoomSnapshot> {
 }
 
 export function subscribeToRoom(roomId: string, callbacks: RoomSyncCallbacks): () => void {
+  const supabase = getSupabaseClient();
   let isCancelled = false;
   let retryIndex = 0;
   let heartbeat: ReturnType<typeof setInterval> | null = null;

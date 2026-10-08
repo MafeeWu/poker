@@ -122,6 +122,11 @@ p {
   padding: 1.25rem;
 }
 
+.copy-feedback {
+  align-self: center;
+  color: var(--paper-strong);
+}
+
 .entry-form {
   display: grid;
   gap: 1rem;

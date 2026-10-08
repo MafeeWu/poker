@@ -31,6 +31,7 @@ export function Card({ value, selected, faceDown, disabled, onClick }: CardProps
     <button
       type="button"
       className={`card-button${selected ? ' selected' : ''}${faceDown ? ' is-face-down' : ''}`}
+      data-testid="card-button"
       aria-label={label}
       aria-pressed={selected}
       aria-disabled={disabled}

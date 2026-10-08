@@ -88,6 +88,7 @@ describe('room UI', () => {
   it('renders every Fibonacci card', () => {
     render(<CardDeck cards={FIBONACCI_CARDS} selected={null} disabled={false} onSelect={vi.fn()} />);
     expect(screen.getAllByRole('button')).toHaveLength(FIBONACCI_CARDS.length);
+    expect(screen.getAllByTestId('card-button')).toHaveLength(FIBONACCI_CARDS.length);
   });
 
   it('marks a selected card without revealing another member vote', () => {
@@ -110,8 +111,25 @@ describe('room UI', () => {
   it('renders distribution only after the snapshot is revealed', () => {
     const { rerender } = render(<RoundBoard snapshot={votingSnapshot()} />);
     expect(screen.queryByRole('img', { name: /vote distribution/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId('round-status')).toHaveTextContent(/waiting for votes/i);
+    expect(screen.queryByTestId('distribution-bars')).not.toBeInTheDocument();
     rerender(<RoundBoard snapshot={revealedSnapshot()} />);
     expect(screen.getByRole('img', { name: /vote distribution/i })).toBeInTheDocument();
+    expect(screen.getByTestId('round-status')).toHaveTextContent(/revealed/i);
+    expect(screen.getByTestId('distribution-bars')).toBeVisible();
+  });
+
+  it('exposes stable room identity, membership, connection, and host control selectors', () => {
+    const snapshot = { ...revealedSnapshot(), myMemberId: 'member-host' };
+    const { rerender } = render(<RoomPage roomCode={snapshot.room.code} initialSnapshot={snapshot} />);
+
+    expect(screen.getByTestId('room-code')).toHaveTextContent(snapshot.room.code);
+    expect(screen.getByTestId('member-count')).toHaveTextContent('3');
+    expect(screen.getByTestId('connection-status')).toBeInTheDocument();
+    expect(screen.getByLabelText(/final estimate/i)).toHaveAttribute('data-testid', 'final-estimate');
+
+    rerender(<RoomPage roomCode={snapshot.room.code} initialSnapshot={votingSnapshot({ myMemberId: 'member-host' })} />);
+    expect(screen.getByTestId('reveal-button')).toBeInTheDocument();
   });
 
   it('shows reconnecting status without claiming a successful vote', () => {
