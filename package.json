@@ -9,6 +9,7 @@
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "node scripts/e2e-preflight.mjs && playwright test",
+    "test:docs": "vitest run src/test/documentation.test.ts",
     "probe:room": "node scripts/load-room.mjs"
   },
   "dependencies": {

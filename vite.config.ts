@@ -13,6 +13,10 @@ export default defineConfig({
     port: 4173,
     strictPort: true,
   },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+  },
   test: {
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',

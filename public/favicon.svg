@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Poker planning table favicon">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#1b2430" />
+      <stop offset="100%" stop-color="#0c1118" />
+    </linearGradient>
+    <linearGradient id="gold" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#f7d88f" />
+      <stop offset="100%" stop-color="#d39d3a" />
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="26" fill="url(#bg)" />
+  <circle cx="64" cy="64" r="46" fill="none" stroke="url(#gold)" stroke-width="8" />
+  <path d="M41 43h46v42H41z" fill="none" stroke="url(#gold)" stroke-width="7" stroke-linejoin="round" />
+  <path d="M52 39V28m24 11V28M38 56h52M38 72h52" stroke="url(#gold)" stroke-width="6" stroke-linecap="round" />
+  <circle cx="50" cy="90" r="7" fill="url(#gold)" />
+  <circle cx="78" cy="90" r="7" fill="url(#gold)" />
+  <path d="M64 84v14M57 98h14" stroke="url(#gold)" stroke-width="6" stroke-linecap="round" />
+</svg>
