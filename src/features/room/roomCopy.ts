@@ -1,6 +1,7 @@
 import type { RoomSnapshot } from '../../lib/roomApi';
 
 export type RecentRoomMeta = {
+  roomId: string;
   code: string;
   nickname: string;
   memberId: string;
@@ -28,6 +29,8 @@ export function readRecentRooms(): RecentRoomMeta[] {
 
     return parsed.filter((entry): entry is RecentRoomMeta => {
       return typeof entry === 'object' && entry !== null
+        && 'roomId' in entry && typeof (entry as { roomId?: unknown }).roomId === 'string'
+        && Boolean((entry as { roomId: string }).roomId)
         && 'code' in entry && typeof (entry as { code?: unknown }).code === 'string'
         && 'nickname' in entry && typeof (entry as { nickname?: unknown }).nickname === 'string'
         && 'memberId' in entry && typeof (entry as { memberId?: unknown }).memberId === 'string';
@@ -48,6 +51,7 @@ export function writeRecentRooms(recentRooms: RecentRoomMeta[]): void {
 export function saveRecentRoom(snapshot: RoomSnapshot): void {
   const member = snapshot.members.find((entry) => entry.id === snapshot.myMemberId);
   const entry: RecentRoomMeta = {
+    roomId: snapshot.room.id,
     code: snapshot.room.code,
     nickname: member?.nickname ?? 'Guest',
     memberId: snapshot.myMemberId,

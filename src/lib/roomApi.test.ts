@@ -118,6 +118,30 @@ describe('roomApi', () => {
     await expect(createRoom('Planning Room', 'Alice')).rejects.toThrow('Room name is required');
   });
 
+  it('reuses the current anonymous session when submitting a vote', async () => {
+    vi.spyOn(supabase.auth, 'getSession').mockResolvedValue({
+      data: { session: { user: { id: 'user-1' } } },
+      error: null,
+    } as any);
+    const signIn = vi.spyOn(supabase.auth, 'signInAnonymously').mockResolvedValue({
+      data: { user: { id: 'user-2' }, session: null },
+      error: null,
+    } as any);
+    const rpc = vi.spyOn(supabase, 'rpc').mockResolvedValue({
+      data: validSnapshot,
+      error: null,
+    } as any);
+
+    await submitVote('room-1', 'round-1', '5');
+
+    expect(signIn).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledWith('submit_vote', {
+      p_room_id: 'room-1',
+      p_round_id: 'round-1',
+      p_value: '5',
+    });
+  });
+
   it('rejects malformed cards before any network call', async () => {
     const signIn = vi.spyOn(supabase.auth, 'signInAnonymously');
     const rpc = vi.spyOn(supabase, 'rpc');

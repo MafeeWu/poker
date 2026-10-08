@@ -7,9 +7,11 @@ import { ConnectionStatus } from './ConnectionStatus';
 import { RoundBoard } from './RoundBoard';
 import { RoomPage } from './RoomPage';
 import { HostControls } from './HostControls';
+import { saveRecentRoom } from './roomCopy';
 
 const roomApi = vi.hoisted(() => ({
   joinRoom: vi.fn(),
+  fetchRoomSnapshot: vi.fn(),
   submitVote: vi.fn(),
   revealRound: vi.fn(),
 }));
@@ -262,6 +264,18 @@ describe('room UI', () => {
     expect(screen.getByLabelText(/nickname/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/room code/i)).toHaveValue('AB12CD34');
     expect(roomApi.joinRoom).not.toHaveBeenCalled();
+  });
+
+  it('recovers a recent room by its UUID instead of its invite code', async () => {
+    window.localStorage.clear();
+    const snapshot = votingSnapshot();
+    roomApi.fetchRoomSnapshot.mockResolvedValueOnce(snapshot);
+    saveRecentRoom(snapshot);
+
+    render(<RoomPage roomCode={snapshot.room.code} />);
+
+    expect(await screen.findByTestId('room-code')).toHaveTextContent(snapshot.room.code);
+    expect(roomApi.fetchRoomSnapshot).toHaveBeenCalledWith(snapshot.room.id);
   });
 });
 

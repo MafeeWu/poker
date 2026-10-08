@@ -40,7 +40,7 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
         setStatus('connecting');
 
         if (recentRoom && recentRoom.memberId) {
-          const nextSnapshot = await fetchRoomSnapshot(roomCode);
+          const nextSnapshot = await fetchRoomSnapshot(recentRoom.roomId);
           setSnapshot(nextSnapshot);
           setStatus('connected');
           saveRecentRoom(nextSnapshot);

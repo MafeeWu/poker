@@ -227,6 +227,11 @@ export async function createOnlineRoomFixture({
       }
     }
 
+    lastSnapshot = unwrap(await hostClient.rpc('build_room_snapshot', {
+      p_room_id: room.id,
+      p_user_id: hostSession.userId,
+    }), 'Final room snapshot');
+
     if (members.length !== expectedMemberCount || lastSnapshot.members.length !== expectedMemberCount) {
       throw new Error(`Fixture created ${members.length} members; expected exactly ${expectedMemberCount}.`);
     }

@@ -171,7 +171,7 @@ describe('load-room probe harness', () => {
     expect(fake.channels).toHaveLength(100);
     expect(fake.revealSnapshots).toHaveLength(100);
     expect(fake.revealSnapshots.every(({ distribution }) => distribution['5'] === 91)).toBe(true);
-    expect(fake.preRevealSnapshots).toHaveLength(100);
+    expect(fake.preRevealSnapshots).toHaveLength(101);
     expect(fake.preRevealSnapshots.every(({ round: currentRound, distribution }) => currentRound.status === 'voting' && distribution === null)).toBe(true);
     expect(result.joinLatencyMs).toBeGreaterThanOrEqual(0);
     expect(result.voteLatencyMs).toBeGreaterThanOrEqual(0);

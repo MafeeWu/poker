@@ -39,6 +39,17 @@ function createFixtureClientFactory({ failJoinAt } = {}) {
             error: null,
           };
         }
+        if (name === 'build_room_snapshot') {
+          return {
+            data: {
+              room: { id: 'room-1', code: 'A1B2C3D4', maxMembers: 100 },
+              myMemberId: 'member-host',
+              round: { id: 'round-1' },
+              members: [...members],
+            },
+            error: null,
+          };
+        }
         if (name === 'heartbeat_member' || name === 'leave_room') {
           return { data: null, error: null };
         }
@@ -67,6 +78,11 @@ describe('online room fixtures', () => {
     expect(fixture.members.filter(({ role }) => role === 'voter')).toHaveLength(90);
     expect(fixture.members.filter(({ role }) => role === 'observer')).toHaveLength(9);
     expect(fixture.members.every(({ online }) => online)).toBe(true);
+    expect(fixture.snapshot.members).toHaveLength(100);
+    expect(fake.clients[0].rpc).toHaveBeenCalledWith('build_room_snapshot', {
+      p_room_id: 'room-1',
+      p_user_id: 'user-2',
+    });
 
     await fixture.heartbeat();
     expect(fake.clients.flatMap(({ rpc }) => rpc.mock.calls).filter(([name]) => name === 'heartbeat_member')).toHaveLength(100);

@@ -222,7 +222,16 @@ async function rpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
 }
 
 export async function ensureAnonymousSession(): Promise<void> {
-  const { error } = await getSupabaseClient().auth.signInAnonymously();
+  const auth = getSupabaseClient().auth;
+  const { data, error: sessionError } = await auth.getSession();
+  if (sessionError) {
+    throw toError(sessionError);
+  }
+  if (data.session) {
+    return;
+  }
+
+  const { error } = await auth.signInAnonymously();
   if (error) {
     throw toError(error);
   }

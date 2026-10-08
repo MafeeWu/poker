@@ -63,7 +63,7 @@ test('a room at capacity rejects the next join', async ({ browser }) => {
     context = await browser.newContext();
     const page = await context.newPage();
     await joinExistingRoom(page, fixture.room.code, 'One Hundred One', 'voter');
-    await expect(page.getByTestId('join-error')).toHaveText(/100 members/i);
+    await expect(page.getByTestId('join-error')).toHaveText(/room is full/i);
   } finally {
     try {
       await context?.close();
