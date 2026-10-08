@@ -248,6 +248,7 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
         onArchive={handleArchive}
         onNextRound={handleNextRound}
         onTransferHost={handleTransferHost}
+        status={status}
         pendingAction={pendingAction}
       />
     </main>

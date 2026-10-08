@@ -160,6 +160,7 @@ describe('room UI', () => {
     render(
       <HostControls
         state={votingSnapshot({ myMemberId: 'member-host' })}
+        status="connected"
         pendingAction="reveal"
         onReveal={vi.fn()}
         onArchive={vi.fn()}
@@ -169,6 +170,60 @@ describe('room UI', () => {
     );
 
     expect(screen.getByRole('button', { name: /reveal/i })).toBeDisabled();
+  });
+
+  it('disables every host mutation while the room is reconnecting', () => {
+    const state = votingSnapshot({ myMemberId: 'member-host' });
+    const controls = {
+      onReveal: vi.fn(),
+      onArchive: vi.fn(),
+      onNextRound: vi.fn(),
+      onTransferHost: vi.fn(),
+    };
+    const { rerender } = render(
+      <HostControls state={state} status="connected" {...controls} />,
+    );
+
+    expect(screen.getByRole('button', { name: /reveal/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /transfer host/i })).toBeEnabled();
+    expect(screen.getByRole('combobox', { name: /transfer host/i })).toBeEnabled();
+
+    rerender(<HostControls state={state} status="reconnecting" {...controls} />);
+
+    expect(screen.getByRole('button', { name: /reveal/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /transfer host/i })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: /transfer host/i })).toBeDisabled();
+
+    const revealed = { ...revealedSnapshot(), myMemberId: 'member-host' };
+    rerender(<HostControls state={revealed} status="connected" {...controls} />);
+    expect(screen.getByRole('button', { name: /archive/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /transfer host/i })).toBeEnabled();
+    expect(screen.getByRole('combobox', { name: /transfer host/i })).toBeEnabled();
+
+    rerender(<HostControls state={revealed} status="reconnecting" {...controls} />);
+    expect(screen.getByRole('button', { name: /archive/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /transfer host/i })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: /transfer host/i })).toBeDisabled();
+
+    const archived = votingSnapshot({
+      myMemberId: 'member-host',
+      round: {
+        id: 'round-1',
+        number: 1,
+        status: 'archived',
+        finalEstimate: '5',
+        startedAt: '2024-01-01T00:00:00.000Z',
+        revealedAt: '2024-01-01T00:05:00.000Z',
+        archivedAt: '2024-01-01T00:06:00.000Z',
+      },
+    });
+    rerender(<HostControls state={archived} status="connected" {...controls} />);
+    expect(screen.getByRole('button', { name: /next round/i })).toBeEnabled();
+
+    rerender(<HostControls state={archived} status="reconnecting" {...controls} />);
+    expect(screen.getByRole('button', { name: /next round/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /transfer host/i })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: /transfer host/i })).toBeDisabled();
   });
 
   it('blocks voting while the room is reconnecting', async () => {
