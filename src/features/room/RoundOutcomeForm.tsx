@@ -69,7 +69,7 @@ export function RoundOutcomeForm({
     onNextRound(estimateDraft.trim(), noteDraft.trim() ? noteDraft : null);
   };
 
-  const estimateDisabled = disabled || pendingAction === 'next';
+  const estimateDisabled = disabled || isPending;
 
   return (
     <section className="round-outcome" aria-labelledby="round-outcome-heading">

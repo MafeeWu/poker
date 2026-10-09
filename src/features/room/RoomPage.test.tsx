@@ -120,6 +120,7 @@ describe('room UI', () => {
     roomApi.updateRoundOutcome.mockReset();
     roomApi.completeRoundAndStartNextRound.mockReset();
     roomApi.revealRound.mockReset();
+    roomApi.transferHost.mockReset();
   });
   it('renders every Fibonacci card', () => {
     render(<CardDeck cards={FIBONACCI_CARDS} selected={null} disabled={false} onSelect={vi.fn()} />);
@@ -394,6 +395,93 @@ describe('room UI', () => {
     expect(screen.getByTestId('round-status')).toHaveTextContent(/revealed/i);
     expect(screen.getByRole('textbox', { name: 'Final estimate' })).toHaveValue('8');
     expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue('Keep this draft');
+  });
+
+  it.each(['resolve', 'reject'] as const)('freezes drafts during a delayed save and permits latest Next after %s', async (result) => {
+    const user = userEvent.setup();
+    const current = { ...revealedSnapshot(), myMemberId: 'member-host' };
+    let resolve!: (value: RoomSnapshot) => void;
+    let reject!: (reason: Error) => void;
+    roomApi.updateRoundOutcome.mockReturnValueOnce(new Promise<RoomSnapshot>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    }));
+    let rejectNext!: (reason: Error) => void;
+    roomApi.completeRoundAndStartNextRound.mockReturnValueOnce(new Promise<RoomSnapshot>((_res, rej) => { rejectNext = rej; }));
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={current} />);
+
+    fireEvent.change(screen.getByLabelText('Final estimate'), { target: { value: '8' } });
+    const note = screen.getByRole('textbox', { name: 'Note' });
+    await user.type(note, 'Saved draft');
+    await user.click(screen.getByRole('heading', { name: 'Round outcome' }));
+
+    expect(screen.getByLabelText('Final estimate')).toBeDisabled();
+    expect(note).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next round' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Transfer host' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Transfer host' })).toBeDisabled();
+    await user.type(note, ' ignored while saving');
+    await user.click(screen.getByRole('button', { name: 'Next round' }));
+    expect(note).toHaveValue('Saved draft');
+    expect(roomApi.completeRoundAndStartNextRound).not.toHaveBeenCalled();
+
+    await act(async () => {
+      if (result === 'resolve') resolve({ ...current, round: { ...current.round, finalEstimate: '8', note: 'Saved draft' } });
+      else reject(new Error('Save failed; draft not persisted'));
+    });
+    expect(note).toHaveValue('Saved draft');
+    expect(note).toBeEnabled();
+    if (result === 'reject') expect(screen.getByRole('alert')).toHaveTextContent('draft not persisted');
+
+    await user.clear(note);
+    await user.type(note, 'Latest unsaved draft');
+    await user.dblClick(screen.getByRole('button', { name: 'Next round' }));
+    expect(roomApi.updateRoundOutcome).toHaveBeenCalledTimes(1);
+    expect(roomApi.completeRoundAndStartNextRound).toHaveBeenCalledTimes(1);
+    expect(roomApi.completeRoundAndStartNextRound).toHaveBeenCalledWith('room-1', 'round-1', '8', 'Latest unsaved draft');
+    expect(note).toBeDisabled();
+    await act(async () => { rejectNext(new Error('Next failed; retry safely')); });
+    expect(note).toHaveValue('Latest unsaved draft');
+    expect(screen.getByRole('alert')).toHaveTextContent('Next failed');
+    expect(screen.getByTestId('round-status')).toHaveTextContent(/revealed/i);
+    expect(screen.getByRole('button', { name: 'Next round' })).toBeEnabled();
+  });
+
+  it.each(['vote', 'reveal', 'transfer'] as const)('disables the deck and all host controls during a delayed %s', async (action) => {
+    const user = userEvent.setup();
+    const current = votingSnapshot({ myMemberId: 'member-host' });
+    let reject!: (reason: Error) => void;
+    const pending = new Promise<RoomSnapshot>((_res, rej) => { reject = rej; });
+    roomApi.submitVote.mockReturnValueOnce(pending);
+    roomApi.revealRound.mockReturnValueOnce(pending);
+    roomApi.transferHost.mockReturnValueOnce(pending);
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={current} />);
+
+    if (action === 'vote') await user.click(screen.getByRole('button', { name: '5' }));
+    else if (action === 'reveal') await user.click(screen.getByRole('button', { name: 'Reveal' }));
+    else {
+      await user.selectOptions(screen.getByRole('combobox', { name: 'Transfer host' }), 'member-1');
+      await user.click(screen.getByRole('button', { name: 'Transfer host' }));
+    }
+    expect(screen.getByRole('button', { name: 'Reveal' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Transfer host' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Transfer host' })).toBeDisabled();
+    for (const card of screen.getAllByTestId('card-button')) expect(card).toBeDisabled();
+    await act(async () => { reject(new Error('Action failed')); });
+    expect(screen.getByRole('button', { name: 'Reveal' })).toBeEnabled();
+  });
+
+  it('freezes the outcome while host transfer is pending', async () => {
+    let reject!: (reason: Error) => void;
+    roomApi.transferHost.mockReturnValueOnce(new Promise<RoomSnapshot>((_res, rej) => { reject = rej; }));
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={{ ...revealedSnapshot(), myMemberId: 'member-host' }} />);
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Transfer host' }), 'member-1');
+    await userEvent.click(screen.getByRole('button', { name: 'Transfer host' }));
+    expect(screen.getByLabelText('Final estimate')).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Note' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next round' })).toBeDisabled();
+    await act(async () => { reject(new Error('Transfer failed')); });
+    expect(screen.getByLabelText('Final estimate')).toBeEnabled();
   });
 
   it('requires explicit identity before joining a deep-linked room', async () => {

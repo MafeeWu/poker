@@ -95,6 +95,15 @@ describe('MemberGrid', () => {
     expect(within(screen.getByTestId('member-card-member-voter')).getByTestId('member-card-front')).toHaveTextContent('8');
   });
 
+  it('never mounts an observer value even in a revealed or archived snapshot', () => {
+    const members: MemberRecord[] = [{ ...baseMember, role: 'observer', vote: '55', hasVoted: true }];
+    const { rerender } = render(<MemberGrid members={members} roundStatus="revealed" />);
+    expect(screen.queryByText('55')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('member-card-front')).not.toBeInTheDocument();
+    rerender(<MemberGrid members={members} roundStatus="archived" />);
+    expect(screen.queryByText('55')).not.toBeInTheDocument();
+  });
+
   it('renders all 100 online members', () => {
     const members = Array.from({ length: 100 }, (_, index) => ({
       ...baseMember,

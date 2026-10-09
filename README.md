@@ -75,3 +75,15 @@ npm run probe:room
 ```
 
 The E2E and probe commands above load `.env.test` automatically (or use the exported variables shown in the local E2E and load-probe setup). They require a running local Supabase instance with anonymous auth and Realtime enabled.
+
+For an existing local database, apply additive migrations without resetting data, then check database permissions and concurrent host/round transitions:
+
+```bash
+supabase migration up --local
+supabase test db
+node scripts/check-round-concurrency.mjs
+```
+
+The concurrency check uses independent `psql` sessions inside `supabase_db_poker-mvp-local` (override with `POKER_DB_CONTAINER` for another local Supabase container). It coordinates real lock waits for transfer-first, Next-first, and rolled-back host departure, verifies atomic round/host/retry state, and removes only its own fixture rooms. Docker and a running local database are required; no credentials or database reset are needed.
+
+While an outcome save is pending, estimate, Note, and other room mutations are disabled. Failed saves retain the visible draft for retry; clicking Next directly from an edited field submits its latest values atomically instead of starting a competing blur save.

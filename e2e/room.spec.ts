@@ -133,7 +133,18 @@ async function expectVotesHidden(page: Page, nicknames: string[]) {
 
 async function expectRevealedVotes(page: Page, votes: { nickname: string; value: string }[]) {
   for (const { nickname, value } of votes) {
-    await expect(memberCard(page, nickname).getByTestId('member-card-front')).toHaveText(value);
+    const front = memberCard(page, nickname).getByTestId('member-card-front');
+    await expect(front).toHaveText(value);
+    const motion = await front.evaluate((element) => {
+      const style = getComputedStyle(element.parentElement!);
+      return { property: style.transitionProperty, duration: parseFloat(style.transitionDuration) };
+    });
+    expect(motion.property).toContain('transform');
+    expect(motion.duration).toBeGreaterThan(0);
+    await expect.poll(() => front.evaluate((element) => {
+      const transform = getComputedStyle(element.parentElement!).transform;
+      return Math.round(new DOMMatrixReadOnly(transform).m11);
+    })).toBe(-1);
   }
 }
 
@@ -163,6 +174,7 @@ test('three independent members complete two rounds without exposing votes befor
   let hostContext: BrowserContext | undefined;
   let voterOneContext: BrowserContext | undefined;
   let voterTwoContext: BrowserContext | undefined;
+  const diagnostics: ReturnType<typeof recordRapidJoinDiagnostics>[] = [];
   try {
     hostContext = await browser.newContext();
     voterOneContext = await browser.newContext();
@@ -183,10 +195,13 @@ test('three independent members complete two rounds without exposing votes befor
     if (!code) {
       throw new Error('Room creation did not render a room code.');
     }
+    diagnostics.push(...pages.map((page, index) => recordRapidJoinDiagnostics(page, nicknames[index], code)));
     await joinExistingRoom(voterOnePage, code, nicknames[1], 'voter');
+    await expect(voterOnePage.getByTestId('join-error')).toHaveCount(0);
     await expect(hostPage.getByTestId('member-count')).toHaveText('2 members');
     await expect(voterOnePage.getByTestId('member-count')).toHaveText('2 members');
     await joinExistingRoom(voterTwoPage, code, nicknames[2], 'voter');
+    await expect(voterTwoPage.getByTestId('join-error')).toHaveCount(0);
     for (const page of pages) {
       await expect(page.getByTestId('member-count')).toHaveText('3 members');
     }
@@ -247,7 +262,12 @@ test('three independent members complete two rounds without exposing votes befor
     }
     await expect(hostPage.getByLabel(/final estimate/i)).toHaveValue('');
     await expect(hostPage.getByText('Tied estimates: 5, 8, 13')).toBeVisible();
+  } catch (error) {
+    await Promise.all(diagnostics.map((item) => item.stop()));
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${message}\nRoom diagnostics (sanitized): ${JSON.stringify(diagnostics.map((item) => item.trace))}`);
   } finally {
+    await Promise.all(diagnostics.map((item) => item.stop()));
     await Promise.all([hostContext?.close(), voterOneContext?.close(), voterTwoContext?.close()]);
   }
 });

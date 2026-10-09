@@ -62,6 +62,35 @@ const snapshot = {
   }],
 };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
+function syncHarness() {
+  const handlers: Record<string, () => void> = {};
+  let subscription!: (status: string, error?: Error) => void;
+  const channel = {
+    on: vi.fn((_event: string, filter: { table: string }, handler: () => void) => {
+      handlers[filter.table] = handler;
+      return channel;
+    }),
+    subscribe: vi.fn((callback: typeof subscription) => {
+      subscription = callback;
+      return channel;
+    }),
+    unsubscribe: vi.fn(),
+  };
+  vi.spyOn(supabase, 'channel').mockReturnValue(channel as any);
+  vi.spyOn(supabase.auth, 'getUser').mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null } as any);
+  const rpc = vi.spyOn(supabase, 'rpc');
+  const callbacks = { onSnapshot: vi.fn(), onConnectionChange: vi.fn(), onError: vi.fn() };
+  const cleanup = subscribeToRoom('room-1', callbacks);
+  return { handlers, subscription, channel, callbacks, cleanup, rpc };
+}
+
 describe('roomSync', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -154,5 +183,111 @@ describe('roomSync', () => {
       p_room_id: 'room-1',
       p_user_id: 'user-1',
     });
+  });
+
+  it('coalesces events during a deferred fetch and never applies its obsolete snapshot', async () => {
+    const harness = syncHarness();
+    const older = deferred<any>();
+    const newer = deferred<any>();
+    harness.rpc.mockReturnValueOnce(older.promise as any).mockReturnValueOnce(newer.promise as any);
+    try {
+      harness.subscription('SUBSCRIBED');
+      await vi.waitFor(() => expect(harness.rpc).toHaveBeenCalledTimes(1));
+      harness.handlers.room_members();
+      harness.handlers.rounds();
+      harness.handlers.rooms();
+      await Promise.resolve();
+      expect(harness.rpc).toHaveBeenCalledTimes(1);
+
+      older.resolve({ data: snapshot, error: null });
+      await vi.waitFor(() => expect(harness.rpc).toHaveBeenCalledTimes(2));
+      expect(harness.callbacks.onSnapshot).not.toHaveBeenCalled();
+      const latest = {
+        ...snapshot,
+        room: { ...snapshot.room, hostMemberId: 'member-2' },
+        round: { ...snapshot.round, id: 'round-2', number: 2 },
+        members: [
+          { ...snapshot.members[0], role: 'voter', hasVoted: true },
+          { ...snapshot.members[0], id: 'member-2', nickname: 'Bob', role: 'host' },
+        ],
+      };
+      newer.resolve({ data: latest, error: null });
+      await vi.waitFor(() => expect(harness.callbacks.onSnapshot).toHaveBeenCalledExactlyOnceWith(latest));
+      expect(harness.handlers.votes).toBeUndefined();
+    } finally { harness.cleanup(); }
+  });
+
+  it('reports an in-flight fetch error and still fetches pending changes', async () => {
+    const harness = syncHarness();
+    const failed = deferred<any>();
+    harness.rpc.mockReturnValueOnce(failed.promise as any).mockResolvedValueOnce({ data: snapshot, error: null } as any);
+    try {
+      harness.subscription('SUBSCRIBED');
+      await vi.waitFor(() => expect(harness.rpc).toHaveBeenCalledTimes(1));
+      harness.handlers.room_members();
+      failed.reject(new Error('Snapshot unavailable'));
+      await vi.waitFor(() => expect(harness.callbacks.onSnapshot).toHaveBeenCalledWith(snapshot));
+      expect(harness.callbacks.onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'Snapshot unavailable' }));
+      expect(harness.callbacks.onConnectionChange).toHaveBeenCalledWith('error');
+      expect(harness.rpc).toHaveBeenCalledTimes(2);
+    } finally { harness.cleanup(); }
+  });
+
+  it.each(['resolve', 'reject'] as const)('ignores a disposed in-flight %s and does not fetch queued events', async (result) => {
+    const harness = syncHarness();
+    const pending = deferred<any>();
+    harness.rpc.mockReturnValueOnce(pending.promise as any);
+    harness.subscription('SUBSCRIBED');
+    await vi.waitFor(() => expect(harness.rpc).toHaveBeenCalledTimes(1));
+    harness.handlers.rounds();
+    harness.cleanup();
+    harness.callbacks.onConnectionChange.mockClear();
+    if (result === 'resolve') pending.resolve({ data: snapshot, error: null });
+    else pending.reject(new Error('Late failure'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    harness.handlers.room_members();
+    harness.subscription('SUBSCRIBED');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(harness.callbacks.onSnapshot).not.toHaveBeenCalled();
+    expect(harness.callbacks.onError).not.toHaveBeenCalled();
+    expect(harness.callbacks.onConnectionChange).not.toHaveBeenCalled();
+    expect(harness.rpc).toHaveBeenCalledTimes(1);
+    expect(harness.channel.unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('recovers from a fetch error on the heartbeat and cancels all timers on disposal', async () => {
+    vi.useFakeTimers();
+    const harness = syncHarness();
+    harness.rpc.mockRejectedValueOnce(new Error('Temporary fetch failure'))
+      .mockResolvedValueOnce({ data: snapshot, error: null } as any);
+    harness.subscription('SUBSCRIBED');
+    await vi.waitFor(() => expect(harness.callbacks.onError).toHaveBeenCalled());
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(harness.callbacks.onSnapshot).toHaveBeenCalledWith(snapshot);
+    harness.cleanup();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(harness.rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it('unsubscribes the old channel on retry and ignores its callbacks after replacement', async () => {
+    vi.useFakeTimers();
+    const harness = syncHarness();
+    const replacement = { on: vi.fn().mockReturnThis(), subscribe: vi.fn().mockReturnThis(), unsubscribe: vi.fn() };
+    vi.mocked(supabase.channel).mockReturnValueOnce(replacement as any);
+    harness.subscription('CHANNEL_ERROR', new Error('Channel failure'));
+    harness.subscription('TIMED_OUT');
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(harness.channel.unsubscribe).toHaveBeenCalledTimes(1);
+    harness.callbacks.onConnectionChange.mockClear();
+    harness.subscription('SUBSCRIBED');
+    harness.handlers.rounds();
+    await Promise.resolve();
+    expect(harness.callbacks.onConnectionChange).not.toHaveBeenCalled();
+    expect(harness.rpc).not.toHaveBeenCalled();
+    harness.cleanup();
+    expect(replacement.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

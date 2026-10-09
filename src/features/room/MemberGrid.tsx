@@ -31,12 +31,20 @@ export function MemberGrid({ members, roundStatus }: MemberGridProps) {
                 <span className="member-online-status">{member.online ? 'Online' : 'Offline'}</span>
                 <span className="member-vote-status">{stateLabel}</span>
               </div>
-              {!isObserver && roundStatus === 'voting' ? (
-                <div className="member-vote-card member-vote-card--back" data-testid="member-card-back" aria-hidden="true">♠</div>
-              ) : null}
-              {!isObserver && roundStatus !== 'voting' && revealedVote !== null ? (
-                <div className="member-vote-card member-vote-card--front" data-testid="member-card-front">
-                  <span>{revealedVote}</span>
+              {!isObserver ? (
+                <div className="member-vote-flip">
+                  <div className={'member-vote-inner' + (revealedVote !== null ? ' is-revealed' : '')}>
+                    <div
+                      className="member-vote-card member-vote-card--back"
+                      data-testid={roundStatus === 'voting' ? 'member-card-back' : undefined}
+                      aria-hidden="true"
+                    >♠</div>
+                    {revealedVote !== null ? (
+                      <div className="member-vote-card member-vote-card--front" data-testid="member-card-front">
+                        <span>{revealedVote}</span>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
             </li>

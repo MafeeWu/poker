@@ -18,7 +18,7 @@ export type HostControlsProps = {
 export function HostControls({ state, status, onReveal, onSaveOutcome, onNextRound, onTransferHost, outcomeError, pendingAction = null }: HostControlsProps) {
   const currentMember = state.members.find((member) => member.id === state.myMemberId);
   const isHost = currentMember?.role === 'host' || state.room.hostMemberId === state.myMemberId;
-  const actionsUnavailable = status !== 'connected';
+  const actionsUnavailable = status !== 'connected' || pendingAction !== null;
   const [transferTarget, setTransferTarget] = useState('');
 
   if (!isHost) {

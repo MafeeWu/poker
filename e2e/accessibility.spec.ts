@@ -71,6 +71,12 @@ test('reduced motion preserves member reveals, chart labels, and estimate with k
           (element) => getComputedStyle(element).animationName,
         ),
       ).toBe('none');
+      const flip = await memberCard(page, 'Motion Host').getByTestId('member-card-front').evaluate((element) => {
+        const style = getComputedStyle(element.parentElement!);
+        return { duration: parseFloat(style.transitionDuration), rotation: new DOMMatrixReadOnly(style.transform).m11 };
+      });
+      expect(flip.duration).toBe(0);
+      expect(flip.rotation).toBe(-1);
       await expect.poll(() =>
         chart.locator('.distribution-bar').evaluate((element) => getComputedStyle(element).animationName),
       ).toBe('none');

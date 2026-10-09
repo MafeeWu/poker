@@ -19,7 +19,10 @@ export function subscribeToRoom(roomId: string, callbacks: RoomSyncCallbacks): (
   let isCancelled = false;
   let retryIndex = 0;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let channel: ReturnType<typeof supabase.channel> | null = null;
+  let refreshPending = false;
+  let refreshing = false;
 
   const stopHeartBeat = () => {
     if (heartbeat) {
@@ -29,19 +32,43 @@ export function subscribeToRoom(roomId: string, callbacks: RoomSyncCallbacks): (
   };
 
   const refreshSnapshot = async () => {
+    if (isCancelled) {
+      return;
+    }
+    refreshPending = true;
+    if (refreshing) {
+      return;
+    }
+    refreshing = true;
     try {
-      const snapshot = await fetchSnapshotApi(roomId);
-      callbacks.onSnapshot(snapshot);
-    } catch (error) {
-      callbacks.onError(error instanceof Error ? error : new Error(String(error)));
-      callbacks.onConnectionChange('error');
+      while (refreshPending && !isCancelled) {
+        refreshPending = false;
+        try {
+          const snapshot = await fetchSnapshotApi(roomId);
+          if (!isCancelled && !refreshPending) {
+            callbacks.onSnapshot(snapshot);
+          }
+        } catch (error) {
+          if (!isCancelled) {
+            callbacks.onError(error instanceof Error ? error : new Error(String(error)));
+            callbacks.onConnectionChange('error');
+          }
+        }
+      }
+    } finally {
+      refreshing = false;
     }
   };
 
   const cleanup = () => {
     isCancelled = true;
+    refreshPending = false;
     retryIndex = RETRY_DELAYS.length;
     stopHeartBeat();
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
     if (channel) {
       channel.unsubscribe();
       channel = null;
@@ -63,10 +90,14 @@ export function subscribeToRoom(roomId: string, callbacks: RoomSyncCallbacks): (
     }
 
     callbacks.onConnectionChange('connecting');
-    channel = supabase.channel(`room-${roomId}`);
+    channel?.unsubscribe();
+    const nextChannel = supabase.channel(`room-${roomId}`);
+    channel = nextChannel;
 
     const onRoomChange = () => {
-      void refreshSnapshot();
+      if (channel === nextChannel) {
+        void refreshSnapshot();
+      }
     };
 
     channel.on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` }, onRoomChange);
@@ -74,11 +105,16 @@ export function subscribeToRoom(roomId: string, callbacks: RoomSyncCallbacks): (
     channel.on('postgres_changes', { event: '*', schema: 'public', table: 'rounds', filter: `room_id=eq.${roomId}` }, onRoomChange);
 
     channel.subscribe((status, error) => {
-      if (isCancelled) {
+      if (isCancelled || channel !== nextChannel) {
         return;
       }
 
       if (status === 'SUBSCRIBED') {
+        retryIndex = 0;
+        if (retryTimer) {
+          clearTimeout(retryTimer);
+          retryTimer = null;
+        }
         callbacks.onConnectionChange('connected');
         startHeartbeat();
         void refreshSnapshot();
@@ -86,6 +122,7 @@ export function subscribeToRoom(roomId: string, callbacks: RoomSyncCallbacks): (
       }
 
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        stopHeartBeat();
         callbacks.onConnectionChange('reconnecting');
         if (error) {
           callbacks.onError(error instanceof Error ? error : new Error(String(error)));
@@ -94,7 +131,11 @@ export function subscribeToRoom(roomId: string, callbacks: RoomSyncCallbacks): (
         const delay = RETRY_DELAYS[Math.min(retryIndex, RETRY_DELAYS.length - 1)];
         retryIndex = Math.min(retryIndex + 1, RETRY_DELAYS.length - 1);
 
-        setTimeout(() => {
+        if (retryTimer) {
+          return;
+        }
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
           if (!isCancelled) {
             connect();
           }
