@@ -3,6 +3,13 @@ import { HomePage } from './HomePage';
 import userEvent from '@testing-library/user-event';
 
 describe('HomePage', () => {
+  it('uses the arcade visual theme', () => {
+    render(<HomePage />);
+    expect(screen.getByRole('main')).toHaveAttribute('data-theme', 'arcade');
+    expect(screen.getByTestId('home-card-fan')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByText(/lucky table/i)).toBeInTheDocument();
+  });
+
   it('shows create and join entry points', () => {
     render(<HomePage />);
     expect(screen.getByRole('button', { name: /create project/i })).toBeInTheDocument();

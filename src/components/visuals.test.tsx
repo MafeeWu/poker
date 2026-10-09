@@ -13,6 +13,7 @@ describe('visual components', () => {
     const card = screen.getByRole('button', { name: /5 selected/i });
     expect(card).toHaveAttribute('aria-pressed', 'true');
     expect(card).toBeInTheDocument();
+    expect(screen.getByTestId('card-suit')).toHaveTextContent('♦');
   });
 
   it('renders labeled status pills and notices', () => {

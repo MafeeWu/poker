@@ -20,14 +20,26 @@ export function HomePage() {
   };
 
   return (
-    <main className="home-shell">
+    <main className="home-shell" data-theme="arcade">
       <header className="home-header">
         <h1 className="home-title">Poker</h1>
         <div className="home-actions">
-          <StatusPill tone="warning">Velvet Table</StatusPill>
+          <StatusPill tone="warning">Lucky Table</StatusPill>
           <StatusPill tone="neutral">Guest access</StatusPill>
         </div>
       </header>
+
+      <section className="home-hero" aria-label="Planning poker">
+        <div>
+          <p className="home-kicker">SHUFFLE UP YOUR SPRINT</p>
+          <p className="home-tagline">Big estimates.<br />Better conversations.</p>
+        </div>
+        <div className="home-card-fan" data-testid="home-card-fan" aria-hidden="true">
+          <span className="home-fan-card">♣<strong>3</strong></span>
+          <span className="home-fan-card">♦<strong>5</strong></span>
+          <span className="home-fan-card">★<strong>8</strong></span>
+        </div>
+      </section>
 
       <div className="home-actions">
         <button type="button" className={mode === 'create' ? 'action-button' : 'action-button secondary'} onClick={() => setMode('create')}>
