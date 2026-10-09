@@ -1,6 +1,6 @@
 # Poker Room Table and Multi-Round Design
 
-**Status:** Approved in conversation; awaiting written-spec review
+**Status:** Approved and implemented locally; final review completed on 2026-10-09
 **Date:** 2026-10-08
 **Scope:** Repair the reported room participation and round-flow experience; move member presence and revealed vote cards into the arcade-style table; make round results and notes visible and persistent.
 
