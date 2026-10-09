@@ -141,6 +141,22 @@ async function expectDistribution(page: Page, labels: string[], counts: string[]
   const chart = page.getByTestId('distribution-bars');
   await expect(chart.locator('.distribution-label')).toHaveText(labels);
   await expect(chart.locator('.distribution-count')).toHaveText(counts);
+  await expect.poll(
+    () => chart.evaluate((distribution) => {
+      const memberGrid = document.querySelector('[data-testid="member-grid"]');
+      if (!memberGrid) {
+        return false;
+      }
+
+      const followsMemberGrid = Boolean(
+        memberGrid.compareDocumentPosition(distribution) & Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+      const memberGridBottom = memberGrid.getBoundingClientRect().bottom;
+      const distributionTop = distribution.getBoundingClientRect().top;
+      return followsMemberGrid && distributionTop >= memberGridBottom;
+    }),
+    { message: 'After Reveal, the distribution must appear after and visually below the complete member grid.' },
+  ).toBe(true);
 }
 
 test('three independent members complete two rounds without exposing votes before Reveal', async ({ browser }) => {
