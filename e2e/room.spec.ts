@@ -10,6 +10,116 @@ function voteCard(page: Page, value: string) {
   return page.getByRole('button', { name: value, exact: true });
 }
 
+type RapidJoinRpcObservation = {
+  rpc: string;
+  status: number;
+  memberCount?: number;
+  roundStatus?: string;
+  errorCode?: string;
+  errorMessage?: string;
+};
+
+type RapidJoinTrace = {
+  nickname: string;
+  memberCounts: string[];
+  connectionStates: string[];
+  rpcResponses: RapidJoinRpcObservation[];
+};
+
+function recordRapidJoinDiagnostics(page: Page, nickname: string, roomCode: string) {
+  const trace: RapidJoinTrace = {
+    nickname,
+    memberCounts: [],
+    connectionStates: [],
+    rpcResponses: [],
+  };
+  const responseTasks: Promise<void>[] = [];
+  let samplingTask: Promise<void> | undefined;
+  let stopped = false;
+
+  const samplePageState = (): Promise<void> => {
+    if (page.isClosed()) {
+      return Promise.resolve();
+    }
+    if (samplingTask) {
+      return samplingTask;
+    }
+    samplingTask = page.evaluate(() => ({
+      memberCount: document.querySelector('[data-testid="member-count"]')?.textContent?.trim() ?? '',
+      connectionState: document.querySelector('[data-testid="connection-status"]')?.textContent?.trim() ?? '',
+    }))
+      .then((state) => {
+        if (state.memberCount && !trace.memberCounts.includes(state.memberCount)) {
+          trace.memberCounts.push(state.memberCount);
+        }
+        if (state.connectionState && !trace.connectionStates.includes(state.connectionState)) {
+          trace.connectionStates.push(state.connectionState);
+        }
+      })
+      .catch(() => {
+        // Navigation can temporarily leave the page without a document to sample.
+      })
+      .finally(() => {
+        samplingTask = undefined;
+      });
+    return samplingTask;
+  };
+
+  const onResponse = (response: import('@playwright/test').Response) => {
+    const rpc = new URL(response.url()).pathname.match(/\/rpc\/(join_room|build_room_snapshot)$/)?.[1];
+    if (!rpc) {
+      return;
+    }
+
+    const task = response.json().then((payload: unknown) => {
+      const data = (Array.isArray(payload) ? payload[0] : payload) as Record<string, unknown> | null;
+      const observation: RapidJoinRpcObservation = { rpc, status: response.status() };
+      if (data && Array.isArray(data.members)) {
+        observation.memberCount = data.members.length;
+      }
+      if (data?.round && typeof data.round === 'object' && 'status' in data.round && typeof data.round.status === 'string') {
+        observation.roundStatus = data.round.status;
+      }
+      if (!response.ok() && data) {
+        if (typeof data.code === 'string') {
+          observation.errorCode = data.code;
+        }
+        if (typeof data.message === 'string') {
+          observation.errorMessage = data.message
+            .replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '[redacted]')
+            .replace(/\b(?:sb_(?:publishable|secret)_[A-Za-z0-9_-]+)\b/g, '[redacted]')
+            .replace(/\b(?:apikey|authorization)\s*[:=]\s*\S+/gi, '[redacted]')
+            .replaceAll(roomCode, '[redacted]')
+            .slice(0, 180);
+        }
+      }
+      trace.rpcResponses.push(observation);
+    }).catch(() => {
+      trace.rpcResponses.push({ rpc, status: response.status() });
+    });
+    responseTasks.push(task);
+  };
+
+  page.on('response', onResponse);
+  const sampler = setInterval(() => {
+    void samplePageState();
+  }, 50);
+
+  return {
+    trace,
+    async stop() {
+      if (stopped) {
+        return;
+      }
+      stopped = true;
+      clearInterval(sampler);
+      page.off('response', onResponse);
+      await samplePageState();
+      await Promise.all(responseTasks);
+    },
+  };
+}
+
 async function expectVotesHidden(page: Page, nicknames: string[]) {
   const grid = page.getByTestId('member-grid');
   await expect(grid.locator('li')).toHaveCount(nicknames.length);
@@ -122,6 +232,61 @@ test('three independent members complete two rounds without exposing votes befor
     await expect(hostPage.getByLabel(/final estimate/i)).toHaveValue('');
     await expect(hostPage.getByText('Tied estimates: 5, 8, 13')).toBeVisible();
   } finally {
+    await Promise.all([hostContext?.close(), voterOneContext?.close(), voterTwoContext?.close()]);
+  }
+});
+
+test('rapid independent joins converge on every room session', async ({ browser }) => {
+  let hostContext: BrowserContext | undefined;
+  let voterOneContext: BrowserContext | undefined;
+  let voterTwoContext: BrowserContext | undefined;
+  const diagnostics: ReturnType<typeof recordRapidJoinDiagnostics>[] = [];
+  try {
+    hostContext = await browser.newContext();
+    voterOneContext = await browser.newContext();
+    voterTwoContext = await browser.newContext();
+    const hostPage = await hostContext.newPage();
+    const voterOnePage = await voterOneContext.newPage();
+    const voterTwoPage = await voterTwoContext.newPage();
+    const pages = [hostPage, voterOnePage, voterTwoPage];
+    const nicknames = ['Rapid Host', 'Rapid Voter One', 'Rapid Voter Two'];
+
+    await createRoom(hostPage, 'Rapid join fixture', nicknames[0]);
+    await expect(hostPage.getByTestId('member-count')).toHaveText(/^1 members?$/);
+    const code = await hostPage.getByTestId('room-code').textContent();
+    if (!code) {
+      throw new Error('Room creation did not render a room code.');
+    }
+
+    diagnostics.push(...pages.map((page, index) => recordRapidJoinDiagnostics(page, nicknames[index], code)));
+    await Promise.all([voterOnePage, voterTwoPage].map(async (page, index) => {
+      await page.goto('/');
+      await page.getByRole('button', { name: /join project/i }).click();
+      await page.getByLabel(/room code/i).fill(code);
+      await page.getByLabel(/nickname/i).fill(nicknames[index + 1]);
+      await page.getByRole('radio', { name: /^voter$/i }).check();
+    }));
+
+    await Promise.all([
+      voterOnePage.getByRole('button', { name: /^join$/i }).click(),
+      voterTwoPage.getByRole('button', { name: /^join$/i }).click(),
+    ]);
+    await Promise.all([voterOnePage, voterTwoPage].map((page) => (
+      expect(page.getByTestId('round-status').or(page.getByTestId('join-error'))).toBeVisible()
+    )));
+    await Promise.all([voterOnePage, voterTwoPage].map((page) => expect(page.getByTestId('join-error')).toHaveCount(0)));
+    for (const page of pages) {
+      await expect(page.getByTestId('member-count')).toHaveText('3 members');
+    }
+  } catch (error) {
+    if (diagnostics.length > 0) {
+      await Promise.all(diagnostics.map((item) => item.stop()));
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`${message}\nRapid-join diagnostics (sanitized): ${JSON.stringify(diagnostics.map((item) => item.trace))}`);
+    }
+    throw error;
+  } finally {
+    await Promise.all(diagnostics.map((item) => item.stop()));
     await Promise.all([hostContext?.close(), voterOneContext?.close(), voterTwoContext?.close()]);
   }
 });
