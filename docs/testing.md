@@ -1,16 +1,17 @@
 # Local integration testing
 
-The browser integration suite and the 100-member room probe require a running local Supabase instance. They use real anonymous auth, database RPCs, and Realtime; the integration suite does not replace those services with success mocks. The migrations publish room, membership, and round changes to Realtime, but deliberately do not publish individual vote rows.
+The E2E suite and room-capacity probe require a running local Supabase instance and an ignored `.env.test` file. They use real anonymous auth, database RPCs, and Realtime; the integration suite does not replace those services with success mocks. Room and membership changes are published to Realtime, but individual vote rows are not.
 
-1. Install the Supabase CLI and start the local stack from the repository root:
+The room E2E coverage uses three independent browser sessions to verify safe submitted-state indicators before Reveal, revealed member cards, positive-count distribution labels, unique-plurality and tied estimates, saved Notes, archived history, and the atomic Next round transition. It also checks the next round and its Reveal, reduced-motion output, mobile overflow, and keyboard focus.
+
+1. Start the local stack and inspect its local API URL and anon key without resetting the database:
 
    ```sh
-   supabase start
-   supabase db reset
-   supabase status -o env
+   npx --offline --yes supabase@2.117.0 start
+   npx --offline --yes supabase@2.117.0 status -o env
    ```
 
-2. Copy the local API URL and anon key reported by `supabase status -o env` into an ignored `.env.test` file:
+2. Copy the local API URL and anon key into an ignored `.env.test` file:
 
    ```dotenv
    SUPABASE_URL=http://127.0.0.1:54321
@@ -19,16 +20,17 @@ The browser integration suite and the 100-member room probe require a running lo
    VITE_SUPABASE_ANON_KEY=<same local anon key>
    ```
 
-   `.env.test` is ignored by Git. The E2E preflight requires a loopback URL, validates both variables, and verifies the local Auth health endpoint before Playwright starts the Vite server.
+   The E2E preflight requires a loopback URL, validates the configuration, and checks the local Auth health endpoint before Playwright starts its temporary Vite server. The room-capacity probe reads the same `.env.test` configuration.
 
-3. Run the checks:
+3. Apply pending migrations and run the checks from the repository root:
 
-   ```sh
+   ```bash
+   npx --offline --yes supabase@2.117.0 migration up --local
+   npx --offline --yes supabase@2.117.0 test db --local
    npm test -- --run
-   supabase test db
    npm run build
    npm run test:e2e
    npm run probe:room
    ```
 
-The load probe creates a new room with one host, 90 voters, and 9 observers; it requires all 100 memberships to be online before attempting the 101st join. `MEMBER_COUNT` must be `100` (or omitted, which defaults to `100`). `ROOM_CODE` is an optional assertion against the generated code, not a seed code or a room the probe tries to find. The probe fails unless the 101st join is rejected specifically for capacity, all members receive Reveal, no pre-Reveal snapshot exposes a distribution, and every channel/session is cleaned up.
+The load probe creates a room with one host, 90 voters, and 9 observers, verifies that all 100 memberships are online, and then attempts a 101st join. It must continue to admit 100 members, reject the 101st specifically for capacity, receive Reveal on all member channels, withhold the distribution before Reveal, and report zero failed operations. The probe is a local integration/load check, not a hosted production SLA claim. `MEMBER_COUNT` must be `100` (or omitted, which defaults to `100`). `ROOM_CODE` optionally asserts the generated code; it is not a seed code or a room the probe tries to find.
