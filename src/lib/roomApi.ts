@@ -244,20 +244,35 @@ async function rpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
   return data as T;
 }
 
-export async function ensureAnonymousSession(): Promise<void> {
-  const auth = getSupabaseClient().auth;
-  const { data, error: sessionError } = await auth.getSession();
-  if (sessionError) {
-    throw toError(sessionError);
-  }
-  if (data.session) {
-    return;
-  }
+let anonymousSessionPending: Promise<void> | null = null;
 
-  const { error } = await auth.signInAnonymously();
-  if (error) {
-    throw toError(error);
+export async function ensureAnonymousSession(): Promise<void> {
+  if (!anonymousSessionPending) {
+    const ensureSession = async () => {
+      const auth = getSupabaseClient().auth;
+      const { data, error: sessionError } = await auth.getSession();
+      if (sessionError) {
+        throw toError(sessionError);
+      }
+      if (data.session) {
+        return;
+      }
+
+      const { error } = await auth.signInAnonymously();
+      if (error) {
+        throw toError(error);
+      }
+    };
+
+    // Serialize the session check and signup together across first-use tabs.
+    const pending = typeof navigator !== 'undefined' && navigator.locks
+      ? navigator.locks.request('poker:guest-session', ensureSession)
+      : ensureSession();
+    anonymousSessionPending = pending.finally(() => {
+      anonymousSessionPending = null;
+    });
   }
+  await anonymousSessionPending;
 }
 
 export async function createRoom(name: string, nickname: string): Promise<RoomSnapshot> {
@@ -279,6 +294,10 @@ export async function joinRoom(code: string, nickname: string, role: JoinRole): 
   const normalizedRole: JoinRole = role === 'observer' ? 'observer' : 'voter';
 
   await ensureAnonymousSession();
+  const restored = await restoreRoomSession(trimmedCode);
+  if (restored) {
+    return restored;
+  }
   const response = await rpc<RoomSnapshotJson>('join_room', {
     p_code: trimmedCode,
     p_nickname: trimmedNickname,
@@ -408,4 +427,36 @@ export async function fetchRoomSnapshot(roomId: string): Promise<RoomSnapshot> {
   });
 
   return normalizeRoomSnapshot(response);
+}
+
+export async function restoreRoomSession(code: string): Promise<RoomSnapshot | null> {
+  const client = getSupabaseClient();
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError) {
+    throw toError(sessionError);
+  }
+  if (!sessionData.session) {
+    return null;
+  }
+
+  const { data: room, error } = await client
+    .from('rooms')
+    .select('id')
+    .eq('code', normalizeText(code, 'Room code').toUpperCase())
+    .maybeSingle();
+  if (error) {
+    throw toError(error);
+  }
+  // RLS returns no room unless this authenticated identity is already a member.
+  if (!room) {
+    return null;
+  }
+
+  const roomId = requiredString(room.id, 'room.id');
+  const snapshot = await fetchRoomSnapshot(roomId);
+  await rpc<void>('heartbeat_member', {
+    p_room_id: roomId,
+    p_member_id: snapshot.myMemberId,
+  });
+  return fetchRoomSnapshot(roomId);
 }

@@ -2,6 +2,20 @@
 
 A React + Vite + TypeScript planning poker app that uses Supabase for anonymous guest access, real-time room sync, and secure room membership rules.
 
+## Returning to a room
+
+Guest identity is saved in the browser and its access tokens refresh
+automatically. Reopen a room's share link or select it from Recent rooms after
+refreshing or closing the browser to resume your member, nickname, role, and
+current-round vote. Normal tabs in the same browser profile and website origin
+share one identity and count as one member in each room.
+
+Another browser, an independent private session, or cleared site data needs to
+join as a new member. Nicknames are unique per room (case-insensitive, ignoring
+surrounding spaces), and offline members retain their names until leaving.
+Knowing a nickname does not authorize taking over that member. Identity lost
+before this persistence change cannot be reconstructed from recent-room history.
+
 ## Local setup
 
 ```bash

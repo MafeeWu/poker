@@ -15,6 +15,7 @@ const roomSyncState = vi.hoisted(() => ({ status: 'connected' as 'connected' | '
 const roomApi = vi.hoisted(() => ({
   joinRoom: vi.fn(),
   fetchRoomSnapshot: vi.fn(),
+  restoreRoomSession: vi.fn(),
   submitVote: vi.fn(),
   revealRound: vi.fn(),
   updateRoundOutcome: vi.fn(),
@@ -121,6 +122,7 @@ describe('room UI', () => {
     roomApi.completeRoundAndStartNextRound.mockReset();
     roomApi.revealRound.mockReset();
     roomApi.transferHost.mockReset();
+    roomApi.restoreRoomSession.mockReset().mockResolvedValue(null);
   });
   it('renders every Fibonacci card', () => {
     render(<CardDeck cards={FIBONACCI_CARDS} selected={null} disabled={false} onSelect={vi.fn()} />);
@@ -494,16 +496,84 @@ describe('room UI', () => {
     expect(roomApi.joinRoom).not.toHaveBeenCalled();
   });
 
-  it('recovers a recent room by its UUID instead of its invite code', async () => {
+  it('restores membership by room code without trusting cached member identity', async () => {
     window.localStorage.clear();
     const snapshot = votingSnapshot();
-    roomApi.fetchRoomSnapshot.mockResolvedValueOnce(snapshot);
+    roomApi.restoreRoomSession.mockResolvedValueOnce(snapshot);
     saveRecentRoom(snapshot);
 
     render(<RoomPage roomCode={snapshot.room.code} />);
 
     expect(await screen.findByTestId('room-code')).toHaveTextContent(snapshot.room.code);
-    expect(roomApi.fetchRoomSnapshot).toHaveBeenCalledWith(snapshot.room.id);
+    expect(roomApi.restoreRoomSession).toHaveBeenCalledWith(snapshot.room.code);
+    expect(roomApi.joinRoom).not.toHaveBeenCalled();
+  });
+
+  it('restores a room even when it is missing from recent history', async () => {
+    window.localStorage.clear();
+    roomApi.restoreRoomSession.mockResolvedValueOnce(votingSnapshot({ myVote: '5' }));
+
+    render(<RoomPage roomCode="AB12CD34" />);
+
+    expect(await screen.findByTestId('room-code')).toHaveTextContent('AB12CD34');
+    expect(screen.getByRole('button', { name: '5 selected' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('heading', { name: 'Join this room' })).not.toBeInTheDocument();
+  });
+
+  it('shows lookup failures even when there is no recent history', async () => {
+    window.localStorage.clear();
+    roomApi.restoreRoomSession.mockRejectedValueOnce(new Error('Failed to fetch'));
+
+    render(<RoomPage roomCode="AB12CD34" />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to fetch');
+    expect(screen.queryByRole('heading', { name: 'Join this room' })).not.toBeInTheDocument();
+  });
+
+  it('offers explicit rejoining when recent history does not belong to the current session', async () => {
+    window.localStorage.clear();
+    saveRecentRoom(votingSnapshot());
+    roomApi.restoreRoomSession.mockResolvedValueOnce(null);
+    const joinedSnapshot = votingSnapshot({
+      myMemberId: 'member-2',
+      members: votingSnapshot().members.map((member) => member.id === 'member-2'
+        ? { ...member, nickname: 'New participant', role: 'observer' as const }
+        : member),
+    });
+    roomApi.joinRoom.mockResolvedValueOnce(joinedSnapshot);
+
+    render(<RoomPage roomCode="AB12CD34" />);
+
+    expect(await screen.findByRole('heading', { name: 'Join this room' })).toBeInTheDocument();
+    expect(screen.getByText(/previous room session.*join again/i)).toBeInTheDocument();
+    expect(screen.queryByText('Loading room…')).not.toBeInTheDocument();
+    expect(screen.queryByText('Connection error')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Nickname')).toHaveValue('');
+    expect(roomApi.joinRoom).not.toHaveBeenCalled();
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('Nickname'), 'New participant');
+    await user.click(screen.getByRole('radio', { name: 'Observer' }));
+    await user.click(screen.getByRole('button', { name: /^Join$/ }));
+
+    expect(await screen.findByTestId('room-code')).toHaveTextContent('AB12CD34');
+    expect(roomApi.joinRoom).toHaveBeenCalledWith('AB12CD34', 'New participant', 'observer');
+    expect(screen.queryByRole('group', { name: /fibonacci cards/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/previous room session/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps genuine recovery failures visible instead of treating them as a missing membership', async () => {
+    window.localStorage.clear();
+    saveRecentRoom(votingSnapshot());
+    roomApi.restoreRoomSession.mockRejectedValueOnce(new Error('Failed to fetch'));
+
+    render(<RoomPage roomCode="AB12CD34" />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to fetch');
+    expect(screen.getByText('Connection error')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Join this room' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Loading room…')).not.toBeInTheDocument();
+    expect(roomApi.joinRoom).not.toHaveBeenCalled();
   });
 });
 

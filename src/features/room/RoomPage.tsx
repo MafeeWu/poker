@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CopyButton } from '../../components/CopyButton';
 import { InlineNotice } from '../../components/InlineNotice';
 import { FIBONACCI_CARDS, type VoteValue } from '../../domain/poker';
-import { completeRoundAndStartNextRound, fetchRoomSnapshot, revealRound, submitVote, transferHost, updateRoundOutcome } from '../../lib/roomApi';
+import { completeRoundAndStartNextRound, restoreRoomSession, revealRound, submitVote, transferHost, updateRoundOutcome } from '../../lib/roomApi';
 import type { RoomSnapshot } from '../../lib/roomApi';
 import { readRecentRooms, saveRecentRoom } from './roomCopy';
 import { CardDeck } from './CardDeck';
@@ -27,6 +27,7 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
   const [pendingAction, setPendingAction] = useState<'vote' | 'reveal' | 'outcome' | 'next' | 'transfer' | null>(null);
   const [outcomeError, setOutcomeError] = useState<string | null>(null);
   const [needsJoin, setNeedsJoin] = useState(false);
+  const [joinNotice, setJoinNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialSnapshot) {
@@ -37,13 +38,17 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
     }
 
     const recentRoom = readRecentRooms().find((entry) => entry.code === roomCode.toUpperCase());
+    let isActive = true;
 
     const recover = async () => {
       try {
         setStatus('connecting');
+        const nextSnapshot = await restoreRoomSession(roomCode);
+        if (!isActive) {
+          return;
+        }
 
-        if (recentRoom && recentRoom.memberId) {
-          const nextSnapshot = await fetchRoomSnapshot(recentRoom.roomId);
+        if (nextSnapshot) {
           setSnapshot(nextSnapshot);
           setStatus('connected');
           saveRecentRoom(nextSnapshot);
@@ -51,13 +56,28 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
         }
 
         setNeedsJoin(true);
+        if (recentRoom) {
+          setJoinNotice('Your previous room session is no longer available. Enter your nickname to join again.');
+        }
       } catch (caughtError) {
+        if (!isActive) {
+          return;
+        }
+        if (caughtError instanceof Error && caughtError.message === 'Membership required') {
+          setError(null);
+          setNeedsJoin(true);
+          setJoinNotice('Your previous room session is no longer available. Enter your nickname to join again.');
+          return;
+        }
         setError(caughtError instanceof Error ? caughtError.message : 'Unable to load room');
         setStatus('error');
       }
     };
 
     void recover();
+    return () => {
+      isActive = false;
+    };
   }, [initialSnapshot, roomCode]);
 
   useEffect(() => {
@@ -191,11 +211,12 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
   if (!snapshot) {
     return (
       <main data-theme="arcade">
-        <ConnectionStatus status={status} />
+        {!needsJoin ? <ConnectionStatus status={status} /> : null}
         {error ? <p role="alert">{error}</p> : null}
         {needsJoin ? (
           <section>
             <h1>Join this room</h1>
+            {joinNotice ? <p role="status">{joinNotice}</p> : null}
             <RoomEntryForm
               mode="join"
               initialRoomCode={roomCode.toUpperCase()}
@@ -204,11 +225,12 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
                 setNeedsJoin(false);
                 setStatus('connected');
                 setError(null);
+                setJoinNotice(null);
                 saveRecentRoom(nextSnapshot);
               }}
             />
           </section>
-        ) : <p>Loading room…</p>}
+        ) : !error ? <p>Loading room…</p> : null}
       </main>
     );
   }

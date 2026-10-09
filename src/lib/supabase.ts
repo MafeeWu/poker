@@ -41,8 +41,8 @@ const supabaseClient = configError
       import.meta.env.VITE_SUPABASE_ANON_KEY.trim(),
       {
         auth: {
-          persistSession: false,
-          autoRefreshToken: false,
+          persistSession: true,
+          autoRefreshToken: true,
           detectSessionInUrl: false,
         },
       },

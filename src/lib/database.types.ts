@@ -84,27 +84,26 @@ export type RoomSnapshotJson = {
   recentRounds: ArchivedRoundRecordJson[];
 };
 
+type RpcManagedTable<Row extends Record<string, unknown>> = {
+  Row: Row;
+  Insert: never;
+  Update: never;
+  Relationships: [];
+};
+
 export type Database = {
   public: {
     Tables: {
-      rooms: {
-        Row: RoomRecordRow;
-      };
-      room_members: {
-        Row: MemberRecordRow;
-      };
-      rounds: {
-        Row: RoundRecordRow;
-      };
-      votes: {
-        Row: {
-          id: string;
-          room_id: string;
-          round_id: string;
-          member_id: string;
-          value: VoteValue;
-        };
-      };
+      rooms: RpcManagedTable<RoomRecordRow>;
+      room_members: RpcManagedTable<MemberRecordRow>;
+      rounds: RpcManagedTable<RoundRecordRow>;
+      votes: RpcManagedTable<{
+        id: string;
+        room_id: string;
+        round_id: string;
+        member_id: string;
+        value: VoteValue;
+      }>;
     };
     Views: Record<string, never>;
     Functions: {

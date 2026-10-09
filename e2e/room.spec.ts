@@ -327,6 +327,155 @@ test('rapid independent joins converge on every room session', async ({ browser 
   }
 });
 
+test('a third independent session with cached room history can explicitly join a share link', async ({ browser }) => {
+  const hostContext = await browser.newContext();
+  const voterContext = await browser.newContext();
+  let thirdContext: BrowserContext | undefined;
+  try {
+    const hostPage = await hostContext.newPage();
+    const voterPage = await voterContext.newPage();
+    await createRoom(hostPage, 'Cached identity fixture', 'Recovery Host');
+    const code = (await hostPage.getByTestId('room-code').innerText()).trim();
+    await joinExistingRoom(voterPage, code, 'Recovery Second', 'voter');
+    await expect(hostPage.getByTestId('member-count')).toHaveText('2 members');
+
+    const rememberedHistory = await voterContext.storageState();
+    for (const origin of rememberedHistory.origins) {
+      origin.localStorage = origin.localStorage.filter((entry) => entry.name === 'poker.recentRooms');
+    }
+    thirdContext = await browser.newContext({ storageState: rememberedHistory });
+    const thirdPage = await thirdContext.newPage();
+    await thirdPage.goto(`/room/${code}`);
+    await expect(thirdPage.getByRole('heading', { name: 'Join this room' })).toBeVisible();
+    await expect(thirdPage.getByText(/previous room session.*join again/i)).toBeVisible();
+    await expect(thirdPage.getByText('Loading room…', { exact: true })).toHaveCount(0);
+    await expect(thirdPage.getByLabel('Nickname')).toHaveValue('');
+    await thirdPage.getByLabel('Nickname').fill('Recovery Third');
+    await thirdPage.getByRole('button', { name: 'Join', exact: true }).click();
+
+    for (const page of [hostPage, voterPage, thirdPage]) {
+      await expect(page.getByTestId('member-count')).toHaveText('3 members');
+      await expect(memberCard(page, 'Recovery Third')).toBeVisible();
+    }
+    await voteCard(thirdPage, '8').click();
+    for (const page of [hostPage, voterPage, thirdPage]) {
+      await expect(memberCard(page, 'Recovery Third')).toHaveAttribute('data-vote-status', 'voted');
+      await expect(memberCard(page, 'Recovery Second')).toHaveAttribute('data-vote-status', 'pending');
+    }
+  } finally {
+    await Promise.all([hostContext.close(), voterContext.close(), thirdContext?.close()]);
+  }
+});
+
+test('clearing browser identity offers explicit rejoining instead of a stuck loading screen', async ({ browser }) => {
+  const hostContext = await browser.newContext();
+  const voterContext = await browser.newContext();
+  try {
+    const hostPage = await hostContext.newPage();
+    const voterPage = await voterContext.newPage();
+    await createRoom(hostPage, 'Reload recovery fixture', 'Reload Host');
+    const code = (await hostPage.getByTestId('room-code').innerText()).trim();
+    await joinExistingRoom(voterPage, code, 'Reload Voter', 'voter');
+    await voterPage.evaluate(() => {
+      for (const key of Object.keys(localStorage)) {
+        if (key !== 'poker.recentRooms') localStorage.removeItem(key);
+      }
+    });
+    await voterPage.reload();
+
+    await expect(voterPage.getByRole('heading', { name: 'Join this room' })).toBeVisible();
+    await expect(voterPage.getByText(/previous room session.*join again/i)).toBeVisible();
+    await expect(voterPage.getByText('Connection error', { exact: true })).toHaveCount(0);
+    await expect(voterPage.getByText('Loading room…', { exact: true })).toHaveCount(0);
+    await expect(voterPage.getByLabel('Room code')).toHaveValue(code);
+    await expect(voterPage.getByLabel('Nickname')).toHaveValue('');
+  } finally {
+    await Promise.all([hostContext.close(), voterContext.close()]);
+  }
+});
+
+test('duplicate nicknames show an actionable error and allow retrying without losing the form', async ({ browser }) => {
+  const hostContext = await browser.newContext();
+  const voterContext = await browser.newContext();
+  const observerContext = await browser.newContext();
+  try {
+    const hostPage = await hostContext.newPage();
+    const voterPage = await voterContext.newPage();
+    const observerPage = await observerContext.newPage();
+    await createRoom(hostPage, 'Unique nickname fixture', 'Mina');
+    const code = (await hostPage.getByTestId('room-code').innerText()).trim();
+
+    await joinExistingRoom(voterPage, code, ' mina ', 'voter');
+    await expect(voterPage.getByRole('alert')).toHaveText(/nickname.*already.*use.*choose another/i);
+    await expect(voterPage.getByLabel('Nickname')).toHaveValue(' mina ');
+    await expect(voterPage.getByLabel('Room code')).toHaveValue(code);
+    await expect(voterPage.getByRole('radio', { name: 'Voter', exact: true })).toBeChecked();
+    await expect(hostPage.getByTestId('member-count')).toHaveText(/^1 members?$/);
+    await voterPage.getByLabel('Nickname').fill('Bob');
+    await voterPage.getByRole('button', { name: 'Join', exact: true }).click();
+    await expect(voterPage.getByTestId('member-count')).toHaveText('2 members');
+    await expect(voterPage.getByRole('alert')).toHaveCount(0);
+
+    await observerPage.goto(`/room/${code}`);
+    await observerPage.getByLabel('Nickname').fill('BOB');
+    await observerPage.getByRole('radio', { name: 'Observer', exact: true }).check();
+    await observerPage.getByRole('button', { name: 'Join', exact: true }).click();
+    await expect(observerPage.getByRole('alert')).toHaveText(/nickname.*already.*use/i);
+    await expect(observerPage.getByLabel('Nickname')).toHaveValue('BOB');
+    await expect(observerPage.getByRole('radio', { name: 'Observer', exact: true })).toBeChecked();
+    await observerPage.getByLabel('Nickname').fill('Carol');
+    await observerPage.getByRole('button', { name: 'Join', exact: true }).click();
+    for (const page of [hostPage, voterPage, observerPage]) {
+      await expect(page.getByTestId('member-count')).toHaveText('3 members');
+      await expect(memberCard(page, 'Mina')).toBeVisible();
+      await expect(memberCard(page, 'Bob')).toBeVisible();
+      await expect(memberCard(page, 'Carol')).toBeVisible();
+    }
+    await expect(observerPage.getByRole('group', { name: /fibonacci cards/i })).toHaveCount(0);
+  } finally {
+    await Promise.all([hostContext.close(), voterContext.close(), observerContext.close()]);
+  }
+});
+
+test('concurrent joins with the same normalized nickname admit only one member', async ({ browser }) => {
+  const hostContext = await browser.newContext();
+  const firstContext = await browser.newContext();
+  const secondContext = await browser.newContext();
+  try {
+    const hostPage = await hostContext.newPage();
+    const firstPage = await firstContext.newPage();
+    const secondPage = await secondContext.newPage();
+    await createRoom(hostPage, 'Nickname race fixture', 'Race Host');
+    const code = (await hostPage.getByTestId('room-code').innerText()).trim();
+    await Promise.all([firstPage, secondPage].map(async (page, index) => {
+      await page.goto(`/room/${code}`);
+      await page.getByLabel('Nickname').fill(index === 0 ? 'Shared name' : ' SHARED NAME ');
+    }));
+    await Promise.all([firstPage, secondPage].map((page) => (
+      page.getByRole('button', { name: 'Join', exact: true }).click()
+    )));
+    await Promise.all([firstPage, secondPage].map((page) => (
+      expect(page.getByTestId('round-status').or(page.getByTestId('join-error'))).toBeVisible()
+    )));
+    const firstRejected = await firstPage.getByTestId('join-error').count() > 0;
+    const rejected = firstRejected ? firstPage : secondPage;
+    const admitted = firstRejected ? secondPage : firstPage;
+    await expect(rejected.getByTestId('join-error')).toHaveText(/nickname.*already.*use/i);
+    await expect(admitted.getByTestId('join-error')).toHaveCount(0);
+    for (const page of [hostPage, admitted]) {
+      await expect(page.getByTestId('member-count')).toHaveText('2 members');
+      await expect(page.getByTestId('member-grid').locator('li')).toHaveCount(2);
+    }
+    await rejected.getByLabel('Nickname').fill('Different name');
+    await rejected.getByRole('button', { name: 'Join', exact: true }).click();
+    for (const page of [hostPage, firstPage, secondPage]) {
+      await expect(page.getByTestId('member-count')).toHaveText('3 members');
+    }
+  } finally {
+    await Promise.all([hostContext.close(), firstContext.close(), secondContext.close()]);
+  }
+});
+
 test('a tied highest vote requires the host to enter an estimate before Next round', async ({ browser }) => {
   let hostContext: BrowserContext | undefined;
   let voterOneContext: BrowserContext | undefined;
