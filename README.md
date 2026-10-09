@@ -75,6 +75,14 @@ npm run build
 
 The production output is emitted to the `dist` directory. Keep the same environment values configured for the preview and production deployments; these variables are required in the browser at runtime, and the build itself does not create a fallback configuration.
 
+For this project's Direct Upload release, put the hosted project URL and its
+public client key in an ignored `.env.production.local`, then run
+`npm run build:production`. This guarded build rejects local database endpoints
+and secret/service-role keys. Upload `dist` using Wrangler; dashboard environment
+variables do not change an already-built bundle. See
+[the deployment guide](docs/deployment.md) for login, migration, upload, and
+live acceptance steps. No Git commit or push is required for Direct Upload.
+
 ## Free-tier limits and operational caveat
 
 Supabase free-tier limits are not an SLA and are not a production guarantee. The free plan can hit connection, query, storage, or bandwidth ceilings during demand spikes or sustained usage. If the app reaches those limits, the recovery path is to move the room service to a paid Supabase plan or an alternate service dedicated to the room backend before continuing live usage.

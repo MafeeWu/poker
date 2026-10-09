@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:production": "node scripts/build-production.mjs",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "node scripts/e2e-preflight.mjs && playwright test",
