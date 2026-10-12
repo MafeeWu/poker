@@ -47,7 +47,7 @@ export function Card({ value, selected, faceDown, disabled, onClick }: CardProps
   return (
     <button
       type="button"
-      className={`card-button${selected ? ' selected' : ''}${faceDown ? ' is-face-down' : ''}`}
+      className={`card-button${faceDown ? ' is-face-down' : ''}`}
       data-suit-tone={suit.tone}
       data-testid="card-button"
       aria-label={label}
@@ -62,12 +62,10 @@ export function Card({ value, selected, faceDown, disabled, onClick }: CardProps
         <span className="card-face card-front">
           <span className="card-corner card-corner-top">
             <span data-testid="card-suit">{suit.symbol}</span>
-            <span>{value}</span>
           </span>
           <span className="card-rank">{value}</span>
           <span className="card-corner card-corner-bottom" aria-hidden="true">
             <span>{suit.symbol}</span>
-            <span>{value}</span>
           </span>
         </span>
       </span>

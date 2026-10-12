@@ -10,6 +10,7 @@ import { getSupabaseClient } from './supabase';
 import {
   completeRoundAndStartNextRound,
   createRoom,
+  heartbeatMember,
   normalizeRoomSnapshot,
   submitVote,
   updateRoundOutcome,
@@ -313,5 +314,16 @@ describe('roomApi', () => {
     } as any);
 
     await expect(updateRoundOutcome('room-1', 'round-1', '5', null)).rejects.toThrow('Host membership required');
+  });
+
+  it('renews only the authenticated room member and propagates rejected heartbeats', async () => {
+    vi.spyOn(supabase.auth, 'getSession').mockResolvedValue({
+      data: { session: { user: { id: 'user-1' } } }, error: null,
+    } as any);
+    const rpc = vi.spyOn(supabase, 'rpc').mockResolvedValue({ data: null, error: null } as any);
+    await heartbeatMember('room-1', 'member-1');
+    expect(rpc).toHaveBeenCalledExactlyOnceWith('heartbeat_member', { p_room_id: 'room-1', p_member_id: 'member-1' });
+    rpc.mockResolvedValueOnce({ data: null, error: { message: 'Presence unavailable' } } as any);
+    await expect(heartbeatMember('room-1', 'member-1')).rejects.toThrow('Presence unavailable');
   });
 });

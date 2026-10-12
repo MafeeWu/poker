@@ -454,9 +454,14 @@ export async function restoreRoomSession(code: string): Promise<RoomSnapshot | n
 
   const roomId = requiredString(room.id, 'room.id');
   const snapshot = await fetchRoomSnapshot(roomId);
+  await heartbeatMember(roomId, snapshot.myMemberId);
+  return fetchRoomSnapshot(roomId);
+}
+
+export async function heartbeatMember(roomId: string, memberId: string): Promise<void> {
+  await ensureAnonymousSession();
   await rpc<void>('heartbeat_member', {
     p_room_id: roomId,
-    p_member_id: snapshot.myMemberId,
+    p_member_id: memberId,
   });
-  return fetchRoomSnapshot(roomId);
 }

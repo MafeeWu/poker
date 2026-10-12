@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 import { FIBONACCI_CARDS } from '../../domain/poker';
@@ -156,14 +156,15 @@ describe('room UI', () => {
     expect(screen.queryByTestId('distribution-bars')).not.toBeInTheDocument();
   });
 
-  it('places the round and voting deck before the member grid inside the table', () => {
+  it('places the round above the table and the voting deck before the member grid inside it', () => {
     const { container } = render(<RoomPage roomCode="AB12CD34" initialSnapshot={votingSnapshot()} />);
     const tablePanel = container.querySelector('.table-panel');
     const roundBoard = screen.getByTestId('round-board');
     const deck = screen.getByRole('group', { name: /fibonacci cards/i });
     const memberGrid = screen.getByTestId('member-grid');
 
-    expect(tablePanel).toContainElement(roundBoard);
+    expect(tablePanel).not.toContainElement(roundBoard);
+    expect(roundBoard.compareDocumentPosition(tablePanel!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(tablePanel).toContainElement(deck);
     expect(tablePanel).toContainElement(memberGrid);
     expect(roundBoard.compareDocumentPosition(deck) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -189,13 +190,17 @@ describe('room UI', () => {
     expect(screen.getByTestId('member-grid')).toBeInTheDocument();
   });
 
-  it('exposes stable room identity, membership, connection, and host control selectors', () => {
+  it('uses only the room name as the main title and places sharing and connection in the header', () => {
     const snapshot = { ...revealedSnapshot(), myMemberId: 'member-host' };
-    const { rerender } = render(<RoomPage roomCode={snapshot.room.code} initialSnapshot={snapshot} />);
+    const { container, rerender } = render(<RoomPage roomCode={snapshot.room.code} initialSnapshot={snapshot} />);
 
-    expect(screen.getByTestId('room-code')).toHaveTextContent(snapshot.room.code);
+    const header = container.querySelector<HTMLElement>('.room-header')!;
+    expect(within(header).getByRole('heading', { level: 1 })).toHaveTextContent(/^Planning Room$/);
+    expect(within(header).getAllByText('Planning Room')).toHaveLength(1);
+    expect(screen.queryByText(snapshot.room.code)).not.toBeInTheDocument();
     expect(screen.getByTestId('member-count')).toHaveTextContent('3');
-    expect(screen.getByTestId('connection-status')).toBeInTheDocument();
+    expect(within(header).getByTestId('connection-status')).toBeInTheDocument();
+    expect(within(header).getByRole('button', { name: 'Copy share link' })).toBeInTheDocument();
     expect(screen.getByLabelText(/final estimate/i)).toHaveAttribute('data-testid', 'final-estimate');
 
     rerender(<RoomPage roomCode={snapshot.room.code} initialSnapshot={votingSnapshot({ myMemberId: 'member-host' })} />);
@@ -504,7 +509,7 @@ describe('room UI', () => {
 
     render(<RoomPage roomCode={snapshot.room.code} />);
 
-    expect(await screen.findByTestId('room-code')).toHaveTextContent(snapshot.room.code);
+    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent(snapshot.room.name);
     expect(roomApi.restoreRoomSession).toHaveBeenCalledWith(snapshot.room.code);
     expect(roomApi.joinRoom).not.toHaveBeenCalled();
   });
@@ -515,7 +520,7 @@ describe('room UI', () => {
 
     render(<RoomPage roomCode="AB12CD34" />);
 
-    expect(await screen.findByTestId('room-code')).toHaveTextContent('AB12CD34');
+    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('Planning Room');
     expect(screen.getByRole('button', { name: '5 selected' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByRole('heading', { name: 'Join this room' })).not.toBeInTheDocument();
   });
@@ -556,7 +561,7 @@ describe('room UI', () => {
     await user.click(screen.getByRole('radio', { name: 'Observer' }));
     await user.click(screen.getByRole('button', { name: /^Join$/ }));
 
-    expect(await screen.findByTestId('room-code')).toHaveTextContent('AB12CD34');
+    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('Planning Room');
     expect(roomApi.joinRoom).toHaveBeenCalledWith('AB12CD34', 'New participant', 'observer');
     expect(screen.queryByRole('group', { name: /fibonacci cards/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/previous room session/i)).not.toBeInTheDocument();
@@ -580,7 +585,7 @@ describe('room UI', () => {
 vi.mock('../../lib/roomSync', () => ({
   subscribeToRoom: vi.fn((_roomId, handlers) => {
     handlers.onConnectionChange(roomSyncState.status);
-    return () => undefined;
+    return { unsubscribe: vi.fn(), sendVoteAnimation: vi.fn().mockResolvedValue(undefined) };
   }),
   fetchRoomSnapshot: vi.fn(),
 }));

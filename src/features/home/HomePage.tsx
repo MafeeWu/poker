@@ -12,6 +12,7 @@ function navigateToRoom(code: string): void {
 
 export function HomePage() {
   const [mode, setMode] = useState<'create' | 'join'>('create');
+  const [isEntryPending, setIsEntryPending] = useState(false);
   const recentRooms = useMemo(() => readRecentRooms(), []);
 
   const handleSuccess = (snapshot: RoomSnapshot) => {
@@ -42,16 +43,16 @@ export function HomePage() {
       </section>
 
       <div className="home-actions">
-        <button type="button" className={mode === 'create' ? 'action-button' : 'action-button secondary'} onClick={() => setMode('create')}>
+        <button type="button" className={mode === 'create' ? 'action-button' : 'action-button secondary'} disabled={isEntryPending} onClick={() => setMode('create')}>
           Create project
         </button>
-        <button type="button" className={mode === 'join' ? 'action-button' : 'action-button secondary'} onClick={() => setMode('join')}>
+        <button type="button" className={mode === 'join' ? 'action-button' : 'action-button secondary'} disabled={isEntryPending} onClick={() => setMode('join')}>
           Join project
         </button>
       </div>
 
       <section className="home-panel">
-        <RoomEntryForm mode={mode} onSuccess={handleSuccess} />
+        <RoomEntryForm mode={mode} onSuccess={handleSuccess} onPendingChange={setIsEntryPending} />
       </section>
 
       <section className="home-panel">

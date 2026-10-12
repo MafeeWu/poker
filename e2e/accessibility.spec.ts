@@ -1,7 +1,8 @@
 import { expect, test, type BrowserContext, type Locator, type Page } from '@playwright/test';
-import { createRoom, joinExistingRoom } from './helpers';
+import { createRoom, joinExistingRoom, roomCode } from './helpers';
 
 async function tabTo(page: Page, target: Locator, maxTabs = 40): Promise<void> {
+  await expect(target).toBeEnabled();
   for (let index = 0; index < maxTabs; index += 1) {
     await page.keyboard.press('Tab');
     if (await target.evaluate((element) => element === document.activeElement)) {
@@ -40,10 +41,7 @@ test('reduced motion preserves member reveals, chart labels, and estimate with k
     const hostPage = await hostContext.newPage();
     const voterPage = await voterContext.newPage();
     await createRoom(hostPage, 'Reduced motion fixture', 'Motion Host');
-    const code = await hostPage.getByTestId('room-code').textContent();
-    if (!code) {
-      throw new Error('Room creation did not render a room code.');
-    }
+    const code = roomCode(hostPage);
     await joinExistingRoom(voterPage, code, 'Motion Voter', 'voter');
     await expect(hostPage.getByTestId('member-count')).toHaveText('2 members');
     await expect(voterPage.getByTestId('member-count')).toHaveText('2 members');

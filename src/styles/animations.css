@@ -15,6 +15,20 @@
   }
 }
 
+@keyframes button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes member-vote-shake {
+  0%, 100% { transform: translateY(0) rotate(0) scale(1); }
+  20% { transform: translateY(-5px) rotate(-6deg) scale(1.04); }
+  40% { transform: translateY(-3px) rotate(5deg) scale(1.03); }
+  60% { transform: translateY(-2px) rotate(-3deg) scale(1.02); }
+  80% { transform: translateY(-1px) rotate(2deg) scale(1.01); }
+}
+
 @keyframes reveal-card {
   0% {
     transform: rotateY(90deg) scale(0.95);
@@ -56,11 +70,6 @@
   transform: translateY(-2px);
 }
 
-.card-button.selected {
-  transform: translateY(-8px) scale(1.02);
-  box-shadow: var(--shadow-card);
-}
-
 .card-button[aria-disabled='true'],
 .card-button:disabled {
   opacity: 0.72;
@@ -98,5 +107,9 @@
     animation: none !important;
     transition-duration: 0ms !important;
     transform: none !important;
+  }
+
+  .button-spinner {
+    animation: none !important;
   }
 }

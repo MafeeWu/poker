@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CopyButton } from '../../components/CopyButton';
 import { InlineNotice } from '../../components/InlineNotice';
 import { FIBONACCI_CARDS, type VoteValue } from '../../domain/poker';
@@ -14,6 +14,7 @@ import { RoundBoard } from './RoundBoard';
 import { VoteDistribution } from './VoteDistribution';
 import { RoundHistory } from './RoundHistory';
 import { RoomEntryForm } from '../home/RoomEntryForm';
+import type { RoomSubscription, VoteAnimationEvent } from '../../lib/roomSync';
 
 export type RoomPageProps = {
   roomCode: string;
@@ -24,10 +25,13 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(initialSnapshot ?? null);
   const [status, setStatus] = useState<ConnectionStatusValue>('connecting');
   const [error, setError] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<'vote' | 'reveal' | 'outcome' | 'next' | 'transfer' | null>(null);
   const [outcomeError, setOutcomeError] = useState<string | null>(null);
   const [needsJoin, setNeedsJoin] = useState(false);
   const [joinNotice, setJoinNotice] = useState<string | null>(null);
+  const roomSubscription = useRef<RoomSubscription | null>(null);
+  const [voteAnimations, setVoteAnimations] = useState<Record<string, VoteAnimationEvent>>({});
 
   useEffect(() => {
     if (initialSnapshot) {
@@ -93,24 +97,34 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
         return;
       }
 
-      cleanup = subscribeToRoom(snapshot.room.id, {
+      const subscription = subscribeToRoom(snapshot.room.id, {
         onSnapshot: (nextSnapshot) => {
           setSnapshot(nextSnapshot);
           saveRecentRoom(nextSnapshot);
-          setStatus('connected');
         },
-        onConnectionChange: (nextStatus) => setStatus(nextStatus),
+        onConnectionChange: (nextStatus) => {
+          setStatus(nextStatus);
+          if (nextStatus === 'connected') setSyncError(null);
+        },
         onError: (caughtError) => {
-          setError(caughtError.message);
+          setSyncError(caughtError.message);
         },
-      });
+        onVoteAnimation: (event) => {
+          setVoteAnimations((current) => ({ ...current, [event.memberId]: event }));
+        },
+      }, snapshot.myMemberId);
+      roomSubscription.current = subscription;
+      cleanup = () => {
+        subscription.unsubscribe();
+        if (roomSubscription.current === subscription) roomSubscription.current = null;
+      };
     });
 
     return () => {
       isActive = false;
       cleanup?.();
     };
-  }, [snapshot?.room.id]);
+  }, [snapshot?.room.id, snapshot?.myMemberId]);
 
   const handleVote = async (value: VoteValue) => {
     if (!snapshot || status !== 'connected' || pendingAction || snapshot.round.status !== 'voting') {
@@ -123,6 +137,10 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
       setSnapshot(nextSnapshot);
       setError(null);
       saveRecentRoom(nextSnapshot);
+      if (!roomSubscription.current) {
+        throw new Error('Vote saved, but the member animation could not be synchronized.');
+      }
+      await roomSubscription.current.sendVoteAnimation(nextSnapshot.myMemberId, nextSnapshot.round.id);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'Unable to submit vote');
     } finally {
@@ -239,22 +257,23 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
 
   return (
     <main className="room-shell" data-theme="arcade">
-      <RoomHeader snapshot={snapshot} />
-
-      <div className="action-row">
-        <ConnectionStatus status={status} />
-        <CopyButton value={typeof window !== 'undefined' ? `${window.location.origin}/room/${snapshot.room.code}` : `/room/${snapshot.room.code}`} label="Copy share link" />
-      </div>
+      <RoomHeader snapshot={snapshot}>
+        <div className="room-header-tools">
+          <ConnectionStatus status={status} />
+          <CopyButton value={typeof window !== 'undefined' ? `${window.location.origin}/room/${snapshot.room.code}` : `/room/${snapshot.room.code}`} label="Copy share link" />
+        </div>
+      </RoomHeader>
 
       {status !== 'connected' ? (
         <InlineNotice tone="info" title="Connection status">Actions are unavailable while disconnected.</InlineNotice>
       ) : null}
 
       {error ? <InlineNotice tone="error" title="Room alert">{error}</InlineNotice> : null}
+      {syncError ? <InlineNotice tone="error" title="Connection error">{syncError}</InlineNotice> : null}
 
+      <RoundBoard snapshot={snapshot} />
       <div className="table-shell">
         <section className="table-panel">
-          <RoundBoard snapshot={snapshot} />
           {canVote ? (
             <CardDeck
               cards={FIBONACCI_CARDS}
@@ -263,7 +282,7 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
               onSelect={handleVote}
             />
           ) : null}
-          <MemberGrid members={snapshot.members} roundStatus={snapshot.round.status} />
+          <MemberGrid members={snapshot.members} roundStatus={snapshot.round.status} roundId={snapshot.round.id} voteAnimations={voteAnimations} />
           {snapshot.round.status !== 'voting' ? <VoteDistribution distribution={snapshot.distribution} /> : null}
           {snapshot.round.status !== 'voting' && snapshot.round.finalEstimate ? (
             <p className="round-status" data-testid="final-estimate-value">Final estimate: {snapshot.round.finalEstimate}</p>
@@ -271,8 +290,8 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
           {snapshot.round.status !== 'voting' && snapshot.round.note !== null && currentMember?.role !== 'host' ? (
             <p className="round-status" data-testid="current-round-note">Note: {snapshot.round.note}</p>
           ) : null}
-          <RoundHistory rounds={snapshot.recentRounds} />
         </section>
+        <RoundHistory rounds={snapshot.recentRounds} />
       </div>
 
       <HostControls

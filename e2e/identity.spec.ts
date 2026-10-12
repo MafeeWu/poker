@@ -1,6 +1,6 @@
 import { mkdir, rm } from 'node:fs/promises';
 import { chromium, expect, test, type BrowserContext, type Page } from '@playwright/test';
-import { createRoom, joinExistingRoom } from './helpers';
+import { createRoom, joinExistingRoom, roomCode } from './helpers';
 
 function memberCard(page: Page, nickname: string) {
   return page.getByTestId('member-grid').locator('li').filter({ hasText: nickname });
@@ -16,7 +16,7 @@ test('reload restores the host identity, vote and host controls without adding a
 
   await expect(page.getByTestId('member-count')).toHaveText(/^1 members?$/);
   await expect(card).toHaveAttribute('data-testid', memberId!);
-  await expect(card.locator('.member-role')).toHaveText('host');
+  await expect(card.getByRole('img', { name: 'Host', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '5 selected', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('heading', { name: 'Join this room' })).toHaveCount(0);
   await page.getByTestId('reveal-button').click();
@@ -31,7 +31,7 @@ test('closing and reopening the browser profile restores the original voter and 
   try {
     const hostPage = await hostContext.newPage();
     await createRoom(hostPage, 'Browser restart fixture', 'Restart Host');
-    const code = (await hostPage.getByTestId('room-code').innerText()).trim();
+    const code = roomCode(hostPage);
     guestBrowser = await chromium.launchPersistentContext(profile, { baseURL: testInfo.project.use.baseURL });
     const guestPage = await guestBrowser.newPage();
     await joinExistingRoom(guestPage, code, 'Restart Voter', 'voter');
@@ -45,7 +45,7 @@ test('closing and reopening the browser profile restores the original voter and 
     await reopenedPage.goto(`/room/${code}`);
     await expect(reopenedPage.getByTestId('member-count')).toHaveText('2 members');
     await expect(memberCard(reopenedPage, 'Restart Voter')).toHaveAttribute('data-testid', memberId!);
-    await expect(memberCard(reopenedPage, 'Restart Voter').locator('.member-role')).toHaveText('voter');
+    await expect(memberCard(reopenedPage, 'Restart Voter')).toHaveAccessibleName(/Restart Voter, voter,/);
     await expect(reopenedPage.getByRole('button', { name: '8 selected', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(reopenedPage.getByTestId('reveal-button')).toHaveCount(0);
     await hostPage.getByTestId('reveal-button').click();
@@ -58,7 +58,7 @@ test('closing and reopening the browser profile restores the original voter and 
 
 test('normal tabs share one member and restore rooms without recent-room history', async ({ context, page }) => {
   await createRoom(page, 'Tab identity fixture', 'Tab Host');
-  const code = (await page.getByTestId('room-code').innerText()).trim();
+  const code = roomCode(page);
   const memberId = await memberCard(page, 'Tab Host').getAttribute('data-testid');
   await page.evaluate(() => localStorage.removeItem('poker.recentRooms'));
   const secondPage = await context.newPage();
@@ -110,12 +110,12 @@ test('simultaneous first-use tabs retain a single browser identity for both room
     page.getByRole('button', { name: 'Create', exact: true }).click()
   )));
   for (const page of [firstPage, secondPage]) {
-    await expect(page.getByTestId('room-code')).toBeVisible();
+    await expect(page.getByTestId('round-board')).toBeVisible();
   }
   await Promise.all([firstPage.reload(), secondPage.reload()]);
   for (const [index, page] of [firstPage, secondPage].entries()) {
     await expect(page.getByTestId('member-count')).toHaveText(/^1 members?$/);
-    await expect(memberCard(page, `Tab creator ${index + 1}`).locator('.member-role')).toHaveText('host');
+    await expect(memberCard(page, `Tab creator ${index + 1}`).getByRole('img', { name: 'Host', exact: true })).toBeVisible();
     await expect(page.getByTestId('reveal-button')).toBeVisible();
   }
   expect(signups).toBe(1);
@@ -123,13 +123,13 @@ test('simultaneous first-use tabs retain a single browser identity for both room
 
 test('using the home join form for an existing room restores the host instead of renaming or demoting it', async ({ page }) => {
   await createRoom(page, 'Home return fixture', 'Original Host');
-  const code = (await page.getByTestId('room-code').innerText()).trim();
+  const code = roomCode(page);
   const memberId = await memberCard(page, 'Original Host').getAttribute('data-testid');
   await joinExistingRoom(page, code, 'Accidental new name', 'observer');
 
   await expect(page.getByTestId('member-count')).toHaveText(/^1 members?$/);
   await expect(memberCard(page, 'Original Host')).toHaveAttribute('data-testid', memberId!);
-  await expect(memberCard(page, 'Original Host').locator('.member-role')).toHaveText('host');
+  await expect(memberCard(page, 'Original Host').getByRole('img', { name: 'Host', exact: true })).toBeVisible();
   await expect(memberCard(page, 'Accidental new name')).toHaveCount(0);
   await page.getByRole('button', { name: '5', exact: true }).click();
   await page.getByTestId('reveal-button').click();

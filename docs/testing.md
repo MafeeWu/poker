@@ -47,7 +47,87 @@ check runs against the real migration:
 node scripts/check-nickname-migration.mjs
 ```
 
-The room E2E coverage uses three independent browser sessions to verify safe submitted-state indicators before Reveal, revealed member cards, positive-count distribution labels, unique-plurality and tied estimates, saved Notes, archived history, and the atomic Next round transition. It also checks the next round and its Reveal, reduced-motion output, mobile overflow, and keyboard focus.
+Member cards are 96–144px wide with a 2:3 ratio, without an outer card panel.
+Nicknames appear below the cards; a crown identifies the host. Back suits are
+derived from random membership UUIDs so they stay consistent across clients,
+reloads, and rounds. Online pending voters use coral, submitted votes use
+turquoise, and observers use purple. Offline members use gray unless they have
+already voted; submitted votes retain turquoise even after disconnecting.
+Observers never reveal a vote. Role, connection, and vote-state details are
+available to screen readers without visible status labels.
+
+Create and Join show a spinner and pending text during requests, disable form
+controls and duplicate submissions, and restore controls after errors without
+clearing inputs. Home entry-mode switching is disabled during a pending request.
+Reduced-motion preferences suppress spinner and flip animation, not their state.
+
+The room header displays the user-entered room name once as its main title,
+without a visible room code or separate name line. Compact connection and share
+controls sit at the top right with the existing status/member badges; narrow
+screens wrap the header without overflow, including long unbroken room names.
+Copy feedback does not shift the controls, and sharing still copies the coded
+room URL. Browser fixtures read room codes from the URL, not a visible label.
+The current Round heading and status occupy one row immediately above the
+felt table, outside its panel.
+
+Selectable-card corner suits are approximately 14px. The header share button
+matches the connection badge's height, font size, pill radius, and shadow;
+its width accommodates the longer label rather than truncating it.
+
+Room subscriptions send the authenticated member's `heartbeat_member` RPC
+immediately after subscribing and every 30 seconds before refreshing the
+snapshot. Focus, becoming visible, page restoration, and network recovery
+trigger an immediate renewal; simultaneous resume events coalesce. Ordinary
+Realtime changes only refresh snapshots and never renew other members or start
+heartbeat feedback loops. Closed/error channels reconnect with backoff.
+Offline signals pause renewals; results from an older connection generation
+cannot restore connection status, publish stale snapshots, or replace a new
+connection's error state. Network recovery establishes a fresh subscription and
+renews presence before reporting success.
+Connection success requires a healthy heartbeat and snapshot on a subscribed
+channel; failures stay visible and disable mutations until recovery, which
+clears only the connection error, not unrelated action errors.
+
+The server retains its real 90-second last-seen expiry. Closing/unmounting the
+room cancels heartbeat timers and browser listeners; no other client keeps a
+departed member alive. An OS-suspended or frozen browser cannot send heartbeats
+and may expire, then renew automatically when it resumes. The real-browser
+presence regression waits 95 seconds without user activity, checks server
+last-seen timestamps and online flags, and verifies recovery after a rejected
+heartbeat without reloading.
+
+Round history occupies a 280px right-hand sidebar beside the table on desktop,
+aligned with the table's top. At viewport widths of 768px or less it follows the
+table vertically. Revealed vote statistics remain below the member grid inside
+the table; moving history does not change archived estimates or Notes.
+
+Rooms expand to 1400px; the 64×96px voting choices are horizontally centered and
+wrap into centered rows on narrow screens. Submitted choices retain their
+screen-reader pressed state but no visible selection highlight or lift;
+hover and keyboard focus remain available.
+
+Each selectable card shows its value only in the center; the diagonal corners
+retain suits without duplicate values. Center values, including special cards,
+and revealed member-card values use the former corner's Georgia/serif font.
+Room-wide digits in titles, rounds, member names/counts, distribution, estimates,
+Notes, and history use local Georgia numeral faces with common serif fallbacks.
+Unicode-limited font faces keep nonnumeric text in its existing family, including
+the Note field's monospace text; homepage typography is unchanged and no font
+download is added. Browser regressions inspect actual rendered fonts as well as
+the card structure through reveal and archival.
+
+Every successful vote or revote triggers a 350ms member-card shake across room
+clients, including observers. The existing room channel broadcasts only random
+event IDs, member IDs, and round IDs, never vote values. Receivers deduplicate
+events and check the current snapshot's round and membership; events received
+before the initial or updated round snapshot are validated after it arrives. These public,
+cosmetic messages are not proof of sender identity and never change votes,
+permissions, or submitted-state indicators. Reduced motion disables shake.
+Rejected votes do not shake, reloads do not replay prior events, and animation
+delivery failures explicitly distinguish the already-saved vote from the
+unsynchronized animation.
+
+The room E2E coverage uses three independent browser sessions to verify safe submitted-state indicators before Reveal, revealed member cards, positive-count distribution labels, unique-plurality and tied estimates, saved Notes, archived history, and the atomic Next round transition. It also checks the next round and its Reveal, reduced-motion output, 320–1440px member-card bounds and name placement, consistent suits, pending entry controls, mobile overflow, and keyboard focus.
 
 1. Start the local stack and inspect its local API URL and anon key without resetting the database:
 

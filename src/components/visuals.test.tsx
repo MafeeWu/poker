@@ -5,6 +5,7 @@ import { Card } from './Card';
 import { CopyButton } from './CopyButton';
 import { InlineNotice } from './InlineNotice';
 import { StatusPill } from './StatusPill';
+import { FIBONACCI_CARDS } from '../domain/poker';
 
 describe('visual components', () => {
   it('exposes accessible names and selection state for cards', () => {
@@ -12,8 +13,21 @@ describe('visual components', () => {
 
     const card = screen.getByRole('button', { name: /5 selected/i });
     expect(card).toHaveAttribute('aria-pressed', 'true');
+    expect(card).not.toHaveClass('selected');
     expect(card).toBeInTheDocument();
     expect(screen.getByTestId('card-suit')).toHaveTextContent('♦');
+  });
+
+  it.each(FIBONACCI_CARDS)('shows %s only once on the card face while retaining both corner suits', (value) => {
+    const { container } = render(<Card value={value} selected={false} faceDown={false} disabled={false} onClick={() => undefined} />);
+    const rank = container.querySelector('.card-rank');
+    expect(rank).toHaveTextContent(value);
+    const corners = container.querySelectorAll('.card-corner');
+    expect(corners).toHaveLength(2);
+    for (const corner of corners) {
+      expect(corner.textContent).toMatch(/^[♠♥♣♦★]$/u);
+      expect(corner.textContent).not.toContain(value);
+    }
   });
 
   it('renders labeled status pills and notices', () => {

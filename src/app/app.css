@@ -1,6 +1,21 @@
 @import '../styles/tokens.css';
 @import '../styles/animations.css';
 
+/* Restrict the local serif face to digits so room text keeps its existing font. */
+@font-face {
+  font-family: "Room Numerals";
+  src: local("Georgia"), local("Times New Roman"), local("Liberation Serif");
+  font-weight: 100 599;
+  unicode-range: U+0030-0039;
+}
+
+@font-face {
+  font-family: "Room Numerals";
+  src: local("Georgia Bold"), local("Georgia-Bold"), local("Times New Roman Bold"), local("Liberation Serif Bold");
+  font-weight: 600 1000;
+  unicode-range: U+0030-0039;
+}
+
 :root {
   font-family: Inter, 'Segoe UI', sans-serif;
   line-height: 1.5;
@@ -132,6 +147,28 @@ p {
   gap: 1rem;
 }
 
+.entry-form button[type="submit"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+}
+
+.action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.button-spinner {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 1.1rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: button-spin 700ms linear infinite;
+}
+
 .entry-form label,
 .entry-form fieldset {
   display: grid;
@@ -224,6 +261,8 @@ p {
 .tone-danger { background: rgba(170, 65, 75, 0.22); color: #ffd2d9; border-color: rgba(211, 114, 124, 0.48); }
 
 .room-shell {
+  width: min(1400px, calc(100vw - 2rem));
+  font-family: "Room Numerals", "Trebuchet MS", "Arial", sans-serif;
   display: grid;
   gap: 1.5rem;
   padding: 1.5rem;
@@ -231,16 +270,18 @@ p {
 }
 
 .room-header {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 1rem;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid rgba(215,177,93,0.22);
 }
 
 .room-header h1 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.1;
   color: var(--paper-strong);
   font-size: clamp(1.7rem, 4vw, 2.7rem);
 }
@@ -248,8 +289,58 @@ p {
 .room-header .meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  justify-content: flex-end;
+  gap: 0.4rem;
   align-items: center;
+}
+
+.room-header-right {
+  display: grid;
+  justify-self: end;
+  gap: 0.5rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.room-header-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.room-header .status-pill {
+  min-height: 24px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.65rem;
+}
+
+.room-header .copy-button {
+  min-width: 0;
+  min-height: 24px;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+  box-shadow: 2px 3px 0 #101116;
+}
+
+.room-header .copy-button-wrap {
+  position: relative;
+}
+
+.room-header .copy-feedback {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 3;
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: #111319;
+  white-space: nowrap;
 }
 
 .table-shell {
@@ -279,6 +370,19 @@ p {
 .round-board {
   display: grid;
   gap: 1rem;
+}
+
+.room-shell > .round-board {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: -0.75rem;
+}
+
+.room-shell > .round-board .round-title {
+  flex: 1;
 }
 
 .round-title {
@@ -482,6 +586,10 @@ p {
   .home-shell,
   .room-shell {
     padding: 1rem;
+  }
+
+  .room-header {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .table-shell {
@@ -798,17 +906,9 @@ body {
 
 .room-header h1 {
   color: var(--gold-soft);
-  font-family: "Arial Black", "Trebuchet MS", sans-serif;
+  font-family: "Room Numerals", "Arial Black", "Trebuchet MS", sans-serif;
   letter-spacing: -0.04em;
   text-shadow: 2px 2px 0 var(--wine);
-}
-
-.room-header > div > p {
-  color: #f08a72;
-  font-size: 0.76rem;
-  font-weight: 900;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
 }
 
 .table-shell {
@@ -833,7 +933,7 @@ body {
 }
 
 .round-title h2 {
-  font-family: "Arial Black", "Trebuchet MS", sans-serif;
+  font-family: "Room Numerals", "Arial Black", "Trebuchet MS", sans-serif;
   letter-spacing: -0.025em;
 }
 
@@ -892,18 +992,18 @@ body {
 }
 
 .card-deck {
-  flex-wrap: nowrap;
-  justify-content: flex-start;
-  gap: 0.4rem;
-  overflow-x: auto;
-  padding: 1.5rem 0.5rem 0.65rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1rem 0.65rem;
+  overflow: visible;
+  padding: 1.5rem 0.75rem 0.65rem;
   perspective: 900px;
 }
 
 .card-button {
-  width: 50px;
-  height: 76px;
-  flex: 0 0 50px;
+  width: 64px;
+  height: 96px;
+  flex: 0 0 64px;
   border: 3px solid #111319;
   border-radius: 9px;
   background: #fff3d4;
@@ -957,7 +1057,7 @@ body {
   display: grid;
   justify-items: center;
   font-family: Georgia, serif;
-  font-size: 0.58rem;
+  font-size: 0.9rem;
   font-weight: 900;
   line-height: 0.9;
 }
@@ -974,7 +1074,7 @@ body {
 }
 
 .card-rank {
-  font-family: "Arial Black", "Trebuchet MS", sans-serif;
+  font-family: Georgia, serif;
   font-size: 1.45rem;
   font-weight: 1000;
   text-shadow: 1px 1px 0 rgba(23, 23, 28, 0.1);
@@ -984,14 +1084,6 @@ body {
   z-index: 2;
   transform: translateY(-10px) rotate(0) scale(1.07);
   box-shadow: 4px 6px 0 #111319, 0 12px 20px rgba(3, 12, 7, 0.36);
-}
-
-.card-button.selected {
-  z-index: 1;
-  border-color: #111319;
-  background: #e4f34e;
-  box-shadow: 0 0 0 3px #f3c23c, 4px 6px 0 #111319, 0 12px 22px rgba(3, 12, 7, 0.4);
-  transform: translateY(-12px) rotate(0) scale(1.08);
 }
 
 .card-back {
@@ -1149,10 +1241,9 @@ body {
   }
 
   .card-deck {
-    justify-content: flex-start;
-    gap: 0.4rem;
-    padding-right: 0.85rem;
-    padding-left: 0.85rem;
+    justify-content: center;
+    padding-right: 0.5rem;
+    padding-left: 0.5rem;
   }
 }
 
@@ -1176,7 +1267,14 @@ body {
 
 
 .room-shell[data-theme="arcade"] .table-shell {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 280px;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .room-shell[data-theme="arcade"] .table-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .room-shell[data-theme="arcade"] .table-panel {
@@ -1193,101 +1291,108 @@ body {
 
 .room-shell[data-theme="arcade"] .member-grid h2 {
   color: #fff0c9;
-  font-family: "Arial Black", "Trebuchet MS", sans-serif;
+  font-family: "Room Numerals", "Arial Black", "Trebuchet MS", sans-serif;
   font-size: 1rem;
   text-transform: uppercase;
 }
 
 .room-shell[data-theme="arcade"] .member-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
-  gap: 0.65rem;
+  grid-template-columns: repeat(auto-fill, minmax(6rem, 9rem));
+  justify-content: center;
+  gap: 1.15rem 1rem;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .room-shell[data-theme="arcade"] .member-card {
+  --member-card-top: #ff8976;
+  --member-card-bottom: #e14a55;
   display: grid;
   align-content: start;
-  gap: 0.45rem;
-  min-width: 0;
-  min-height: 7.5rem;
-  padding: 0.65rem;
-  border: 2px solid #111319;
-  border-radius: 10px;
-  background: linear-gradient(155deg, #fff4d8, #ead6a9);
-  box-shadow: 0 3px 0 #101116;
-  color: var(--ink);
+  justify-self: center;
+  gap: 0.65rem;
+  width: 100%;
+  min-width: 6rem;
+  max-width: 9rem;
+  color: var(--paper-strong);
 }
 
-.room-shell[data-theme="arcade"] .member-card--voted {
-  background: linear-gradient(155deg, #edffae, #b5dd55);
+.room-shell[data-theme="arcade"] .member-card[data-card-state="voted"] {
+  --member-card-top: #65ffd2;
+  --member-card-bottom: #1ac69b;
 }
 
-.room-shell[data-theme="arcade"] .member-card--pending {
-  background: linear-gradient(155deg, #fff0bc, #edc342);
+.room-shell[data-theme="arcade"] .member-card[data-card-state="offline"] {
+  --member-card-top: #c7ccd3;
+  --member-card-bottom: #858e9b;
 }
 
-.room-shell[data-theme="arcade"] .member-card--observer {
-  background: linear-gradient(155deg, #ebe5f1, #b9a8c8);
+.room-shell[data-theme="arcade"] .member-card[data-card-state="observer"] {
+  --member-card-top: #d2b5ff;
+  --member-card-bottom: #a07ad8;
 }
 
-.room-shell[data-theme="arcade"] .member-card-heading,
-.room-shell[data-theme="arcade"] .member-card-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-}
-
-.room-shell[data-theme="arcade"] .member-card-heading strong {
+.room-shell[data-theme="arcade"] .member-name {
   min-width: 0;
   overflow-wrap: anywhere;
-  color: #17171c;
-}
-
-.room-shell[data-theme="arcade"] .member-role,
-.room-shell[data-theme="arcade"] .member-online-status,
-.room-shell[data-theme="arcade"] .member-vote-status {
-  color: #28251f;
-  font-size: 0.68rem;
+  text-align: center;
+  color: var(--paper-strong);
+  font-size: 0.9rem;
   font-weight: 900;
-  text-transform: uppercase;
-}
-
-.room-shell[data-theme="arcade"] .member-role {
-  padding: 0.14rem 0.35rem;
-  border: 1px solid currentColor;
-  border-radius: 5px;
+  text-shadow: 1px 2px 0 #111319;
 }
 
 .room-shell[data-theme="arcade"] .member-vote-card {
   display: grid;
-  width: 2.25rem;
-  height: 3rem;
+  width: 100%;
+  height: 100%;
   place-items: center;
-  justify-self: center;
-  border: 2px solid #111319;
-  border-radius: 6px;
-  box-shadow: 2px 3px 0 #111319;
+  border: 3px solid #111319;
+  border-radius: 12px;
+  box-shadow: 3px 5px 0 #111319, 0 8px 18px rgba(8, 24, 16, 0.3);
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.25) 1px, transparent 1.5px),
+    linear-gradient(145deg, var(--member-card-top), var(--member-card-bottom));
+  background-size: 8px 8px, auto;
+  color: #17171c;
   font-family: "Arial Black", "Trebuchet MS", sans-serif;
-  font-size: 1.15rem;
+  font-size: clamp(2.75rem, 6vw, 3.75rem);
   font-weight: 1000;
 }
 
-.room-shell[data-theme="arcade"] .member-vote-card--back {
-  background:
-    radial-gradient(circle, rgba(255, 255, 255, 0.22) 1px, transparent 1.5px),
-    linear-gradient(145deg, #ed544e, #a52d42);
-  background-size: 8px 8px, auto;
-  color: #f3ed79;
+.room-shell[data-theme="arcade"] .member-vote-card::before {
+  position: absolute;
+  inset: 7px;
+  border: 1px solid rgba(23, 23, 28, 0.3);
+  border-radius: 6px;
+  content: "";
+  pointer-events: none;
 }
 
-.room-shell[data-theme="arcade"] .member-vote-card--front {
-  background: linear-gradient(150deg, #fff8e8, #e8d5aa);
+.room-shell[data-theme="arcade"] .member-host-badge {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 2px solid #111319;
+  border-radius: 6px;
+  background: #f1bd38;
+  box-shadow: 1px 2px 0 #111319;
   color: #17171c;
+}
+
+.member-host-badge svg {
+  width: 1.2rem;
+  height: 1.2rem;
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
 }
 
 .room-shell[data-theme="arcade"] .distribution-chart {
@@ -1318,8 +1423,12 @@ body {
 }
 
 @media (max-width: 420px) {
+  .room-shell[data-theme="arcade"] .table-panel {
+    padding: 0.75rem;
+  }
+
   .room-shell[data-theme="arcade"] .member-card-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(6rem, 1fr));
   }
 }
 
@@ -1338,7 +1447,7 @@ body {
 .round-outcome h2,
 .round-history h2 {
   color: var(--gold-soft);
-  font-family: "Arial Black", "Trebuchet MS", sans-serif;
+  font-family: "Room Numerals", "Arial Black", "Trebuchet MS", sans-serif;
   font-size: 1rem;
   letter-spacing: -0.02em;
   text-transform: uppercase;
@@ -1366,6 +1475,7 @@ body {
 .round-outcome textarea {
   min-height: 5rem;
   resize: vertical;
+  font-family: "Room Numerals", monospace;
 }
 
 .round-note-count {
@@ -1396,9 +1506,12 @@ body {
 }
 
 .round-history {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid rgba(255, 242, 212, 0.32);
+  align-content: start;
+  padding: 1rem;
+  border: 3px solid #111319;
+  border-radius: 15px;
+  background: linear-gradient(155deg, #302b39, #1d1f27);
+  box-shadow: 0 5px 0 #101116;
 }
 
 .round-history ol {
@@ -1437,10 +1550,14 @@ body {
 }
 
 .room-shell[data-theme="arcade"] .member-vote-flip {
-  width: 2.25rem;
-  height: 3rem;
-  justify-self: center;
-  perspective: 600px;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  perspective: 900px;
+}
+
+.room-shell[data-theme="arcade"] .member-vote-flip.is-shaking {
+  animation: member-vote-shake 350ms ease-out;
 }
 
 .room-shell[data-theme="arcade"] .member-vote-inner {
@@ -1463,10 +1580,15 @@ body {
 
 .room-shell[data-theme="arcade"] .member-vote-inner .member-vote-card--front {
   transform: rotateY(180deg);
+  font-family: Georgia, serif;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .room-shell[data-theme="arcade"] .member-vote-inner {
     transition: none;
+  }
+
+  .room-shell[data-theme="arcade"] .member-vote-flip {
+    animation: none !important;
   }
 }

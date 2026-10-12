@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
-import { createRoom, joinExistingRoom } from './helpers';
+import { createRoom, joinExistingRoom, roomCode } from './helpers';
 import { createOnlineRoomFixture } from '../scripts/room-fixtures.mjs';
 
 function memberCard(page: Page, nickname: string) {
@@ -191,10 +191,7 @@ test('three independent members complete two rounds without exposing votes befor
     ];
 
     await createRoom(hostPage, 'Three member fixture', nicknames[0]);
-    const code = await hostPage.getByTestId('room-code').textContent();
-    if (!code) {
-      throw new Error('Room creation did not render a room code.');
-    }
+    const code = roomCode(hostPage);
     diagnostics.push(...pages.map((page, index) => recordRapidJoinDiagnostics(page, nicknames[index], code)));
     await joinExistingRoom(voterOnePage, code, nicknames[1], 'voter');
     await expect(voterOnePage.getByTestId('join-error')).toHaveCount(0);
@@ -289,10 +286,7 @@ test('rapid independent joins converge on every room session', async ({ browser 
 
     await createRoom(hostPage, 'Rapid join fixture', nicknames[0]);
     await expect(hostPage.getByTestId('member-count')).toHaveText(/^1 members?$/);
-    const code = await hostPage.getByTestId('room-code').textContent();
-    if (!code) {
-      throw new Error('Room creation did not render a room code.');
-    }
+    const code = roomCode(hostPage);
 
     diagnostics.push(...pages.map((page, index) => recordRapidJoinDiagnostics(page, nicknames[index], code)));
     await Promise.all([voterOnePage, voterTwoPage].map(async (page, index) => {
@@ -335,7 +329,7 @@ test('a third independent session with cached room history can explicitly join a
     const hostPage = await hostContext.newPage();
     const voterPage = await voterContext.newPage();
     await createRoom(hostPage, 'Cached identity fixture', 'Recovery Host');
-    const code = (await hostPage.getByTestId('room-code').innerText()).trim();
+    const code = roomCode(hostPage);
     await joinExistingRoom(voterPage, code, 'Recovery Second', 'voter');
     await expect(hostPage.getByTestId('member-count')).toHaveText('2 members');
 
@@ -374,7 +368,7 @@ test('clearing browser identity offers explicit rejoining instead of a stuck loa
     const hostPage = await hostContext.newPage();
     const voterPage = await voterContext.newPage();
     await createRoom(hostPage, 'Reload recovery fixture', 'Reload Host');
-    const code = (await hostPage.getByTestId('room-code').innerText()).trim();
+    const code = roomCode(hostPage);
     await joinExistingRoom(voterPage, code, 'Reload Voter', 'voter');
     await voterPage.evaluate(() => {
       for (const key of Object.keys(localStorage)) {
@@ -403,7 +397,7 @@ test('duplicate nicknames show an actionable error and allow retrying without lo
     const voterPage = await voterContext.newPage();
     const observerPage = await observerContext.newPage();
     await createRoom(hostPage, 'Unique nickname fixture', 'Mina');
-    const code = (await hostPage.getByTestId('room-code').innerText()).trim();
+    const code = roomCode(hostPage);
 
     await joinExistingRoom(voterPage, code, ' mina ', 'voter');
     await expect(voterPage.getByRole('alert')).toHaveText(/nickname.*already.*use.*choose another/i);
@@ -446,7 +440,7 @@ test('concurrent joins with the same normalized nickname admit only one member',
     const firstPage = await firstContext.newPage();
     const secondPage = await secondContext.newPage();
     await createRoom(hostPage, 'Nickname race fixture', 'Race Host');
-    const code = (await hostPage.getByTestId('room-code').innerText()).trim();
+    const code = roomCode(hostPage);
     await Promise.all([firstPage, secondPage].map(async (page, index) => {
       await page.goto(`/room/${code}`);
       await page.getByLabel('Nickname').fill(index === 0 ? 'Shared name' : ' SHARED NAME ');
@@ -491,10 +485,7 @@ test('a tied highest vote requires the host to enter an estimate before Next rou
     const nicknames = ['Tie Host', 'Tie Voter One', 'Tie Voter Two'];
 
     await createRoom(hostPage, 'Tie fixture', nicknames[0]);
-    const code = await hostPage.getByTestId('room-code').textContent();
-    if (!code) {
-      throw new Error('Room creation did not render a room code.');
-    }
+    const code = roomCode(hostPage);
     await joinExistingRoom(voterOnePage, code, nicknames[1], 'voter');
     await joinExistingRoom(voterTwoPage, code, nicknames[2], 'voter');
     for (const page of pages) {
@@ -540,10 +531,7 @@ test('an observer sees the room but has no vote controls', async ({ browser }) =
     const hostPage = await hostContext.newPage();
     const observerPage = await observerContext.newPage();
     await createRoom(hostPage, 'Observer fixture', 'Host');
-    const code = await hostPage.getByTestId('room-code').textContent();
-    if (!code) {
-      throw new Error('Room creation did not render a room code.');
-    }
+    const code = roomCode(hostPage);
     await joinExistingRoom(observerPage, code, 'Observer', 'observer');
     await expect(observerPage.getByRole('region', { name: 'Members' })).toBeVisible();
     await expect(observerPage.getByRole('group', { name: /fibonacci cards/i })).toHaveCount(0);

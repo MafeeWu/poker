@@ -8,6 +8,12 @@ const env = vi.hoisted(() => {
 
 import { fetchRoomSnapshot, subscribeToRoom } from './roomSync';
 import { getSupabaseClient } from './supabase';
+import * as roomApi from './roomApi';
+
+vi.mock('./roomApi', async () => {
+  const actual = await vi.importActual<typeof import('./roomApi')>('./roomApi');
+  return { ...actual, heartbeatMember: vi.fn().mockResolvedValue(undefined) };
+});
 
 const supabase = getSupabaseClient();
 
@@ -70,11 +76,11 @@ function deferred<T>() {
 }
 
 function syncHarness() {
-  const handlers: Record<string, () => void> = {};
+  const handlers: Record<string, (message?: { payload: unknown }) => void> = {};
   let subscription!: (status: string, error?: Error) => void;
   const channel = {
-    on: vi.fn((_event: string, filter: { table: string }, handler: () => void) => {
-      handlers[filter.table] = handler;
+    on: vi.fn((_event: string, filter: { table?: string; event?: string }, handler: () => void) => {
+      handlers[filter.table ?? filter.event ?? ''] = handler;
       return channel;
     }),
     subscribe: vi.fn((callback: typeof subscription) => {
@@ -82,19 +88,21 @@ function syncHarness() {
       return channel;
     }),
     unsubscribe: vi.fn(),
+    send: vi.fn().mockResolvedValue('ok'),
   };
   vi.spyOn(supabase, 'channel').mockReturnValue(channel as any);
   vi.spyOn(supabase.auth, 'getUser').mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null } as any);
   const rpc = vi.spyOn(supabase, 'rpc');
-  const callbacks = { onSnapshot: vi.fn(), onConnectionChange: vi.fn(), onError: vi.fn() };
-  const cleanup = subscribeToRoom('room-1', callbacks);
-  return { handlers, subscription, channel, callbacks, cleanup, rpc };
+  const callbacks = { onSnapshot: vi.fn(), onConnectionChange: vi.fn(), onError: vi.fn(), onVoteAnimation: vi.fn() };
+  const roomSubscription = subscribeToRoom('room-1', callbacks, 'member-1');
+  return { handlers, subscription, channel, callbacks, roomSubscription, cleanup: roomSubscription.unsubscribe, rpc };
 }
 
 describe('roomSync', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
+    vi.mocked(roomApi.heartbeatMember).mockReset().mockResolvedValue(undefined);
   });
 
   it('transitions through connecting and connected, then refreshes on Postgres changes', async () => {
@@ -119,10 +127,9 @@ describe('roomSync', () => {
     vi.spyOn(supabase.auth, 'getUser').mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null } as any);
     vi.spyOn(supabase, 'rpc').mockResolvedValue({ data: snapshot, error: null } as any);
 
-    const cleanup = subscribeToRoom('room-1', { onSnapshot, onConnectionChange, onError });
+    const { unsubscribe: cleanup } = subscribeToRoom('room-1', { onSnapshot, onConnectionChange, onError }, 'member-1');
 
     expect(onConnectionChange).toHaveBeenCalledWith('connecting');
-    expect(onConnectionChange).toHaveBeenCalledWith('connected');
 
     expect(channel.on).toHaveBeenCalledWith('postgres_changes', {
       event: '*',
@@ -143,6 +150,7 @@ describe('roomSync', () => {
         p_user_id: 'user-1',
       });
       expect(onSnapshot).toHaveBeenCalledWith(snapshot);
+      expect(onConnectionChange).toHaveBeenCalledWith('connected');
     });
 
     cleanup();
@@ -166,7 +174,7 @@ describe('roomSync', () => {
     vi.spyOn(supabase.auth, 'getUser').mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null } as any);
     vi.spyOn(supabase, 'rpc').mockResolvedValue({ data: snapshot, error: null } as any);
 
-    const cleanup = subscribeToRoom('room-1', { onSnapshot, onConnectionChange, onError });
+    const { unsubscribe: cleanup } = subscribeToRoom('room-1', { onSnapshot, onConnectionChange, onError }, 'member-1');
 
     expect(onConnectionChange).toHaveBeenCalledWith('reconnecting');
 
@@ -289,5 +297,259 @@ describe('roomSync', () => {
     harness.cleanup();
     expect(replacement.unsubscribe).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('broadcasts only value-free vote animation IDs and handles local/echo events once', async () => {
+    const harness = syncHarness();
+    harness.rpc.mockResolvedValue({ data: snapshot, error: null } as any);
+    try {
+      harness.subscription('SUBSCRIBED');
+      await vi.waitFor(() => expect(harness.callbacks.onSnapshot).toHaveBeenCalled());
+      await harness.roomSubscription.sendVoteAnimation('member-1', 'round-1');
+      const sent = harness.channel.send.mock.calls[0][0];
+      expect(sent.type).toBe('broadcast');
+      expect(sent.event).toBe('vote-animation');
+      expect(Object.keys(sent.payload).sort()).toEqual(['eventId', 'memberId', 'roundId']);
+      expect(sent.payload).toEqual({ eventId: expect.any(String), memberId: 'member-1', roundId: 'round-1' });
+      expect(harness.callbacks.onVoteAnimation).toHaveBeenCalledExactlyOnceWith(sent.payload);
+      harness.handlers['vote-animation']({ payload: sent.payload });
+      expect(harness.callbacks.onVoteAnimation).toHaveBeenCalledTimes(1);
+      harness.handlers['vote-animation']({ payload: { ...sent.payload, eventId: 'remote-event' } });
+      expect(harness.callbacks.onVoteAnimation).toHaveBeenCalledTimes(2);
+      harness.handlers['vote-animation']({ payload: { ...sent.payload, eventId: 'wrong-round', roundId: 'round-old' } });
+      harness.handlers['vote-animation']({ payload: { ...sent.payload, eventId: 'unknown-member', memberId: 'stranger' } });
+      harness.handlers['vote-animation']({ payload: { ...sent.payload, eventId: 'extra-value', value: '8' } });
+      expect(harness.callbacks.onVoteAnimation).toHaveBeenCalledTimes(2);
+      harness.cleanup();
+      harness.handlers['vote-animation']({ payload: { ...sent.payload, eventId: 'after-disposal' } });
+      expect(harness.callbacks.onVoteAnimation).toHaveBeenCalledTimes(2);
+    } finally { harness.cleanup(); }
+  });
+
+  it('reports animation delivery failures without claiming the persisted vote failed', async () => {
+    const harness = syncHarness();
+    harness.rpc.mockResolvedValue({ data: snapshot, error: null } as any);
+    try {
+      harness.subscription('SUBSCRIBED');
+      await vi.waitFor(() => expect(harness.callbacks.onSnapshot).toHaveBeenCalled());
+      harness.channel.send.mockResolvedValueOnce('timed out');
+      await expect(harness.roomSubscription.sendVoteAnimation('member-1', 'round-1')).rejects.toThrow(/Vote saved.*animation/i);
+      harness.channel.send.mockRejectedValueOnce(new Error('Transport failure'));
+      await expect(harness.roomSubscription.sendVoteAnimation('member-1', 'round-1')).rejects.toThrow(/Vote saved.*animation/i);
+      harness.cleanup();
+      await expect(harness.roomSubscription.sendVoteAnimation('member-1', 'round-1')).rejects.toThrow(/Vote saved.*animation/i);
+    } finally { harness.cleanup(); }
+  });
+
+  it('validates an early animation after the initial snapshot arrives, without replaying it', async () => {
+    const harness = syncHarness();
+    const initial = deferred<any>();
+    harness.rpc.mockReturnValueOnce(initial.promise as any).mockResolvedValue({ data: snapshot, error: null } as any);
+    try {
+      harness.subscription('SUBSCRIBED');
+      await vi.waitFor(() => expect(harness.rpc).toHaveBeenCalledTimes(1));
+      const event = { memberId: 'member-1', roundId: 'round-1', eventId: 'early-event' };
+      harness.handlers['vote-animation']({ payload: event });
+      harness.handlers['vote-animation']({ payload: { ...event, eventId: 'unknown', memberId: 'stranger' } });
+      expect(harness.callbacks.onVoteAnimation).not.toHaveBeenCalled();
+      initial.resolve({ data: snapshot, error: null });
+      await vi.waitFor(() => expect(harness.callbacks.onVoteAnimation).toHaveBeenCalledExactlyOnceWith(event));
+      harness.handlers.room_members();
+      harness.handlers['vote-animation']({ payload: event });
+      await vi.waitFor(() => expect(harness.callbacks.onSnapshot).toHaveBeenCalledTimes(2));
+      expect(harness.callbacks.onVoteAnimation).toHaveBeenCalledTimes(1);
+    } finally { harness.cleanup(); }
+  });
+
+  it('retains a new-round animation received before its snapshot refresh starts', async () => {
+    const harness = syncHarness();
+    harness.rpc.mockResolvedValue({ data: snapshot, error: null } as any);
+    try {
+      harness.subscription('SUBSCRIBED');
+      await vi.waitFor(() => expect(harness.callbacks.onSnapshot).toHaveBeenCalledOnce());
+      const event = { memberId: 'member-1', roundId: 'round-2', eventId: 'first-new-round-vote' };
+      harness.handlers['vote-animation']({ payload: event });
+      expect(harness.callbacks.onVoteAnimation).not.toHaveBeenCalled();
+      harness.rpc.mockResolvedValue({ data: { ...snapshot, round: { ...snapshot.round, id: 'round-2', number: 2 } }, error: null } as any);
+      harness.handlers.rounds();
+      await vi.waitFor(() => expect(harness.callbacks.onSnapshot).toHaveBeenCalledTimes(2));
+      expect(harness.callbacks.onVoteAnimation).toHaveBeenCalledExactlyOnceWith(event);
+    } finally { harness.cleanup(); }
+  });
+
+  it('renews presence on subscription and every 30 seconds, never on ordinary room events', async () => {
+    vi.useFakeTimers();
+    const harness = syncHarness();
+    harness.rpc.mockResolvedValue({ data: snapshot, error: null } as any);
+    try {
+      harness.subscription('SUBSCRIBED');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(roomApi.heartbeatMember).toHaveBeenCalledExactlyOnceWith('room-1', 'member-1');
+      harness.handlers.room_members();
+      harness.handlers.rounds();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(roomApi.heartbeatMember).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(95_000);
+      expect(roomApi.heartbeatMember).toHaveBeenCalledTimes(4);
+      harness.cleanup();
+      window.dispatchEvent(new Event('focus'));
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(roomApi.heartbeatMember).toHaveBeenCalledTimes(4);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { harness.cleanup(); }
+  });
+
+  it.each(['focus', 'online', 'pageshow', 'visibilitychange'])('renews presence immediately on %s', async (event) => {
+    const harness = syncHarness();
+    harness.rpc.mockResolvedValue({ data: snapshot, error: null } as any);
+    try {
+      harness.subscription('SUBSCRIBED');
+      await vi.waitFor(() => expect(harness.callbacks.onSnapshot).toHaveBeenCalled());
+      vi.mocked(roomApi.heartbeatMember).mockClear();
+      (event === 'visibilitychange' ? document : window).dispatchEvent(new Event(event));
+      await vi.waitFor(() => expect(roomApi.heartbeatMember).toHaveBeenCalledExactlyOnceWith('room-1', 'member-1'));
+    } finally { harness.cleanup(); }
+  });
+
+  it('reports heartbeat failure, does not claim connection on a snapshot-only refresh, and recovers on focus', async () => {
+    const harness = syncHarness();
+    harness.rpc.mockResolvedValue({ data: snapshot, error: null } as any);
+    vi.mocked(roomApi.heartbeatMember).mockRejectedValueOnce(new Error('Presence unavailable'));
+    try {
+      harness.subscription('SUBSCRIBED');
+      await vi.waitFor(() => expect(harness.callbacks.onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'Presence unavailable' })));
+      expect(harness.callbacks.onConnectionChange).not.toHaveBeenCalledWith('connected');
+      harness.callbacks.onConnectionChange.mockClear();
+      harness.handlers.room_members();
+      await vi.waitFor(() => expect(harness.callbacks.onSnapshot).toHaveBeenCalled());
+      expect(harness.callbacks.onConnectionChange).not.toHaveBeenCalledWith('connected');
+      window.dispatchEvent(new Event('focus'));
+      await vi.waitFor(() => expect(harness.callbacks.onConnectionChange).toHaveBeenCalledWith('connected'));
+    } finally { harness.cleanup(); }
+  });
+
+  it('coalesces concurrent resume signals and ignores a disposed in-flight heartbeat', async () => {
+    const harness = syncHarness();
+    harness.rpc.mockResolvedValue({ data: snapshot, error: null } as any);
+    const pending = deferred<void>();
+    vi.mocked(roomApi.heartbeatMember).mockReturnValueOnce(pending.promise);
+    harness.subscription('SUBSCRIBED');
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('online'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.waitFor(() => expect(roomApi.heartbeatMember).toHaveBeenCalledOnce());
+    harness.cleanup();
+    pending.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(harness.callbacks.onSnapshot).not.toHaveBeenCalled();
+    expect(harness.callbacks.onConnectionChange).not.toHaveBeenCalledWith('connected');
+    expect(harness.rpc).not.toHaveBeenCalled();
+  });
+
+  it('reconnects a closed channel and cancels the backoff when the network returns', async () => {
+    vi.useFakeTimers();
+    const harness = syncHarness();
+    const replacement = { on: vi.fn().mockReturnThis(), subscribe: vi.fn().mockReturnThis(), unsubscribe: vi.fn() };
+    vi.mocked(supabase.channel).mockReturnValueOnce(replacement as any);
+    try {
+      harness.subscription('CLOSED');
+      expect(harness.callbacks.onConnectionChange).toHaveBeenCalledWith('reconnecting');
+      expect(vi.getTimerCount()).toBe(1);
+      window.dispatchEvent(new Event('online'));
+      expect(replacement.subscribe).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { harness.cleanup(); }
+  });
+
+  it('does not let an in-flight heartbeat restore an offline connection', async () => {
+    vi.useFakeTimers();
+    const harness = syncHarness();
+    const pending = deferred<void>();
+    vi.mocked(roomApi.heartbeatMember).mockReturnValueOnce(pending.promise);
+    harness.rpc.mockResolvedValue({ data: snapshot, error: null } as any);
+    try {
+      harness.subscription('SUBSCRIBED');
+      window.dispatchEvent(new Event('offline'));
+      pending.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(harness.callbacks.onConnectionChange).toHaveBeenLastCalledWith('reconnecting');
+      expect(harness.callbacks.onSnapshot).not.toHaveBeenCalled();
+      window.dispatchEvent(new Event('focus'));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(roomApi.heartbeatMember).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+      const replacement = {
+        on: vi.fn().mockReturnThis(),
+        subscribe: vi.fn((_callback: (status: string) => void) => replacement),
+        unsubscribe: vi.fn(),
+      };
+      vi.mocked(supabase.channel).mockReturnValueOnce(replacement as any);
+      window.dispatchEvent(new Event('online'));
+      replacement.subscribe.mock.calls[0][0]('SUBSCRIBED');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(harness.callbacks.onSnapshot).toHaveBeenCalledExactlyOnceWith(snapshot);
+      expect(harness.callbacks.onConnectionChange).toHaveBeenLastCalledWith('connected');
+      expect(roomApi.heartbeatMember).toHaveBeenCalledTimes(2);
+    } finally { harness.cleanup(); }
+  });
+
+  it('requires a fresh heartbeat after replacing a channel with a pending renewal', async () => {
+    vi.useFakeTimers();
+    const harness = syncHarness();
+    const oldRenewal = deferred<void>();
+    const newRenewal = deferred<void>();
+    vi.mocked(roomApi.heartbeatMember).mockReturnValueOnce(oldRenewal.promise).mockReturnValueOnce(newRenewal.promise);
+    harness.rpc.mockResolvedValue({ data: snapshot, error: null } as any);
+    const replacement = {
+      on: vi.fn().mockReturnThis(),
+      subscribe: vi.fn((_callback: (status: string) => void) => replacement),
+      unsubscribe: vi.fn(),
+    };
+    vi.mocked(supabase.channel).mockReturnValueOnce(replacement as any);
+    try {
+      harness.subscription('SUBSCRIBED');
+      harness.subscription('CLOSED');
+      window.dispatchEvent(new Event('online'));
+      replacement.subscribe.mock.calls[0][0]('SUBSCRIBED');
+      oldRenewal.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(harness.callbacks.onSnapshot).not.toHaveBeenCalled();
+      expect(harness.callbacks.onConnectionChange).not.toHaveBeenCalledWith('connected');
+      expect(roomApi.heartbeatMember).toHaveBeenCalledTimes(2);
+      newRenewal.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(harness.callbacks.onSnapshot).toHaveBeenCalledExactlyOnceWith(snapshot);
+      expect(harness.callbacks.onConnectionChange).toHaveBeenLastCalledWith('connected');
+    } finally { harness.cleanup(); }
+  });
+
+  it.each(['resolve', 'reject'] as const)('ignores a replaced channel snapshot that later %ss', async (result) => {
+    vi.useFakeTimers();
+    const harness = syncHarness();
+    const pending = deferred<{ data: typeof snapshot; error: null }>();
+    harness.rpc.mockReturnValueOnce(pending.promise as any).mockResolvedValue({ data: snapshot, error: null } as any);
+    const replacement = {
+      on: vi.fn().mockReturnThis(),
+      subscribe: vi.fn((_callback: (status: string) => void) => replacement),
+      unsubscribe: vi.fn(),
+    };
+    vi.mocked(supabase.channel).mockReturnValueOnce(replacement as any);
+    try {
+      harness.subscription('SUBSCRIBED');
+      await vi.advanceTimersByTimeAsync(0);
+      harness.subscription('CLOSED');
+      window.dispatchEvent(new Event('online'));
+      replacement.subscribe.mock.calls[0][0]('SUBSCRIBED');
+      if (result === 'resolve') {
+        pending.resolve({ data: { ...snapshot, room: { ...snapshot.room, name: 'Stale room' } }, error: null });
+      } else {
+        pending.reject(new Error('Old connection failed'));
+      }
+      await vi.advanceTimersByTimeAsync(0);
+      expect(harness.callbacks.onError).not.toHaveBeenCalled();
+      expect(harness.callbacks.onSnapshot).toHaveBeenCalledExactlyOnceWith(snapshot);
+      expect(harness.callbacks.onConnectionChange).toHaveBeenLastCalledWith('connected');
+    } finally { harness.cleanup(); }
   });
 });
