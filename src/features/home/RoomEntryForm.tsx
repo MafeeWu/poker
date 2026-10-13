@@ -72,6 +72,10 @@ export function RoomEntryForm({ mode, onSuccess, initialRoomCode = '', onPending
             value={roomCode}
             onChange={(event) => setRoomCode(event.target.value)}
             placeholder="AB12CD34"
+            className="room-code-input"
+            autoCapitalize="characters"
+            autoComplete="off"
+            spellCheck={false}
             disabled={isSubmitting}
           />
         </label>
@@ -116,7 +120,7 @@ export function RoomEntryForm({ mode, onSuccess, initialRoomCode = '', onPending
         </fieldset>
       )}
 
-      {error ? <p role="alert" data-testid={mode === 'join' ? 'join-error' : undefined}>{error}</p> : null}
+      {error ? <p className="form-error" role="alert" data-testid={mode === 'join' ? 'join-error' : undefined}>{error}</p> : null}
 
       <button type="submit" className="action-button" disabled={isSubmitting} aria-busy={isSubmitting} aria-label={submitLabel}>
         {isSubmitting ? <span className="button-spinner" aria-hidden="true" /> : null}

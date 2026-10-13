@@ -2,6 +2,29 @@
 
 A React + Vite + TypeScript planning poker app that uses Supabase for anonymous guest access, real-time room sync, and secure room membership rules.
 
+## Visual theme
+
+The home, table, share-link entry, loading, error, and configuration screens use
+one Balatro-inspired pixel-table theme: deep green felt, charcoal panels, warm
+paper cards, muted red, and chip-gold accents. The pixel joker and wordmark are
+original local SVGs; no game artwork or external fonts are required.
+
+Shared colors, spacing, and typography live in `src/styles/tokens.css`, layout and
+component styles in `src/app/app.css`, and motion in `src/styles/animations.css`.
+Submitted votes do not leave a visible selection outline, face-color change, or
+card lift; member cards indicate only that a vote was submitted until reveal.
+Keyboard focus and temporary hover feedback remain available. Entry modes expose
+their selected state, role choices keep
+full-size touch targets, and room screens provide a home link. Layouts adapt down
+to 320px, prioritize room entry on mobile, and honor `prefers-reduced-motion`.
+Room numerals retain their existing serif face, while body text stays readable.
+
+While a connected client submits a vote, the deck and host controls stay visually
+stable instead of dimming and restoring on every selection. Actions remain
+temporarily disabled to prevent overlapping requests, and the room exposes its
+busy state to assistive technology. Disconnected controls keep their unavailable
+styling, rejected votes show an error, and member vote/shake feedback is preserved.
+
 ## Returning to a room
 
 Guest identity is saved in the browser and its access tokens refresh

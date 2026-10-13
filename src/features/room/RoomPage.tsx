@@ -228,35 +228,51 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
 
   if (!snapshot) {
     return (
-      <main data-theme="arcade">
-        {!needsJoin ? <ConnectionStatus status={status} /> : null}
-        {error ? <p role="alert">{error}</p> : null}
-        {needsJoin ? (
-          <section>
-            <h1>Join this room</h1>
-            {joinNotice ? <p role="status">{joinNotice}</p> : null}
-            <RoomEntryForm
-              mode="join"
-              initialRoomCode={roomCode.toUpperCase()}
-              onSuccess={(nextSnapshot) => {
-                setSnapshot(nextSnapshot);
-                setNeedsJoin(false);
-                setStatus('connected');
-                setError(null);
-                setJoinNotice(null);
-                saveRecentRoom(nextSnapshot);
-              }}
-            />
-          </section>
-        ) : !error ? <p>Loading room…</p> : null}
+      <main className="state-shell" data-theme="arcade">
+        <a className="back-link" href="/" aria-label="Back to home"><span aria-hidden="true">←</span> Back to home</a>
+        <section className="state-panel">
+          <img className="state-joker" src="/joker.svg" alt="" />
+          <p className="eyebrow">A SEAT AT THE TABLE</p>
+          {!needsJoin ? <ConnectionStatus status={status} /> : null}
+          {error ? (
+            <>
+              <h1>Could not open this table.</h1>
+              <p className="form-error" role="alert">{error}</p>
+            </>
+          ) : null}
+          {needsJoin ? (
+            <>
+              <h1>Join this room</h1>
+              <p>Your team has saved you a seat.</p>
+              {joinNotice ? <p role="status">{joinNotice}</p> : null}
+              <RoomEntryForm
+                mode="join"
+                initialRoomCode={roomCode.toUpperCase()}
+                onSuccess={(nextSnapshot) => {
+                  setSnapshot(nextSnapshot);
+                  setNeedsJoin(false);
+                  setStatus('connected');
+                  setError(null);
+                  setJoinNotice(null);
+                  saveRecentRoom(nextSnapshot);
+                }}
+              />
+            </>
+          ) : !error ? <p role="status">Loading room…</p> : null}
+        </section>
       </main>
     );
   }
 
   const canVote = snapshot.round.status === 'voting' && (currentMember?.role === 'voter' || currentMember?.role === 'host');
+  const isSubmittingVote = pendingAction === 'vote' && status === 'connected';
 
   return (
-    <main className="room-shell" data-theme="arcade">
+    <main
+      className={isSubmittingVote ? 'room-shell is-submitting-vote' : 'room-shell'}
+      data-theme="arcade"
+      aria-busy={pendingAction !== null}
+    >
       <RoomHeader snapshot={snapshot}>
         <div className="room-header-tools">
           <ConnectionStatus status={status} />
@@ -275,12 +291,15 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
       <div className="table-shell">
         <section className="table-panel">
           {canVote ? (
-            <CardDeck
-              cards={FIBONACCI_CARDS}
-              selected={snapshot.myVote}
-              disabled={status !== 'connected' || pendingAction !== null || snapshot.round.status !== 'voting'}
-              onSelect={handleVote}
-            />
+            <div className="deck-section">
+              <div className="deck-heading"><h2>Pick your estimate</h2><span>Your vote stays private until reveal.</span></div>
+              <CardDeck
+                cards={FIBONACCI_CARDS}
+                selected={snapshot.myVote}
+                disabled={status !== 'connected' || pendingAction !== null || snapshot.round.status !== 'voting'}
+                onSelect={handleVote}
+              />
+            </div>
           ) : null}
           <MemberGrid members={snapshot.members} roundStatus={snapshot.round.status} roundId={snapshot.round.id} voteAnimations={voteAnimations} />
           {snapshot.round.status !== 'voting' ? <VoteDistribution distribution={snapshot.distribution} /> : null}
@@ -290,6 +309,12 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
           {snapshot.round.status !== 'voting' && snapshot.round.note !== null && currentMember?.role !== 'host' ? (
             <p className="round-status" data-testid="current-round-note">Note: {snapshot.round.note}</p>
           ) : null}
+          <div className="member-legend" aria-label="Card status">
+            <span><i className="legend-pending" aria-hidden="true" />Waiting</span>
+            <span><i className="legend-voted" aria-hidden="true" />Voted</span>
+            <span><i className="legend-observer" aria-hidden="true" />Observer</span>
+            <span><i className="legend-offline" aria-hidden="true" />Offline</span>
+          </div>
         </section>
         <RoundHistory rounds={snapshot.recentRounds} />
       </div>

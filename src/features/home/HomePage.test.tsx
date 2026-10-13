@@ -22,6 +22,19 @@ describe('HomePage', () => {
     expect(screen.getByRole('button', { name: /join project/i })).toBeInTheDocument();
   });
 
+  it('makes the active entry mode explicit to assistive technology', async () => {
+    const user = userEvent.setup();
+    render(<HomePage />);
+    const create = screen.getByRole('button', { name: /create project/i });
+    const join = screen.getByRole('button', { name: /join project/i });
+    expect(create).toHaveAttribute('aria-pressed', 'true');
+    expect(join).toHaveAttribute('aria-pressed', 'false');
+    await user.click(join);
+    expect(create).toHaveAttribute('aria-pressed', 'false');
+    expect(join).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Room code')).toBeVisible();
+  });
+
   it('uses the form controls expected by the end-to-end helpers', async () => {
     const user = userEvent.setup();
     render(<HomePage />);

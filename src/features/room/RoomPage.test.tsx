@@ -124,6 +124,25 @@ describe('room UI', () => {
     roomApi.transferHost.mockReset();
     roomApi.restoreRoomSession.mockReset().mockResolvedValue(null);
   });
+  it('provides a way home while the room is loading and after joining is required', async () => {
+    render(<RoomPage roomCode="AB12CD34" />);
+    expect(screen.getByRole('link', { name: /back to home/i })).toHaveAttribute('href', '/');
+    expect(await screen.findByRole('heading', { name: 'Join this room' })).toBeVisible();
+    expect(screen.getByRole('link', { name: /back to home/i })).toHaveAttribute('href', '/');
+  });
+
+  it('provides a way home when room lookup fails', async () => {
+    roomApi.restoreRoomSession.mockRejectedValueOnce(new Error('Room not found'));
+    render(<RoomPage roomCode="AB12CD34" />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Room not found');
+    expect(screen.getByRole('link', { name: /back to home/i })).toHaveAttribute('href', '/');
+  });
+
+  it('provides a way home from an active table', () => {
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={votingSnapshot()} />);
+    expect(screen.getByRole('link', { name: /back to home/i })).toHaveAttribute('href', '/');
+  });
+
   it('renders every Fibonacci card', () => {
     render(<CardDeck cards={FIBONACCI_CARDS} selected={null} disabled={false} onSelect={vi.fn()} />);
     expect(screen.getAllByRole('button')).toHaveLength(FIBONACCI_CARDS.length);
@@ -474,8 +493,10 @@ describe('room UI', () => {
     expect(screen.getByRole('button', { name: 'Transfer host' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Transfer host' })).toBeDisabled();
     for (const card of screen.getAllByTestId('card-button')) expect(card).toBeDisabled();
+    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'true');
     await act(async () => { reject(new Error('Action failed')); });
     expect(screen.getByRole('button', { name: 'Reveal' })).toBeEnabled();
+    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false');
   });
 
   it('freezes the outcome while host transfer is pending', async () => {
