@@ -19,7 +19,7 @@ full-size touch targets, and room screens provide a home link. Layouts adapt dow
 to 320px, prioritize room entry on mobile, and honor `prefers-reduced-motion`.
 Room numerals retain their existing serif face, while body text stays readable.
 
-While a connected client submits a vote, the deck and host controls stay visually
+While a connected client submits a vote, the deck and round controls stay visually
 stable instead of dimming and restoring on every selection. Actions remain
 temporarily disabled to prevent overlapping requests, and the room exposes its
 busy state to assistive technology. Disconnected controls keep their unavailable
@@ -38,6 +38,19 @@ join as a new member. Nicknames are unique per room (case-insensitive, ignoring
 surrounding spaces), and offline members retain their names until leaving.
 Knowing a nickname does not authorize taking over that member. Identity lost
 before this persistence change cannot be reconstructed from recent-room history.
+
+## Shared round controls
+
+Hosts and voters can reveal votes, edit the revealed round's final estimate and
+Note, and start the next round. Observers remain read-only: they can see revealed
+votes, results, and history, but cannot vote or manage rounds. A creator's host
+label is retained; manual host transfer is no longer available.
+
+Shared outcome updates refresh untouched form fields without replacing another
+member's unsaved draft. Starting the next round saves the latest draft, archives
+the current round, and creates exactly one new round atomically. Concurrent
+member requests and retries return the existing round without replacing its
+archived outcome. Authentication and room membership remain required.
 
 ## Local setup
 
@@ -121,7 +134,7 @@ npm run probe:room
 
 The E2E and probe commands above load `.env.test` automatically (or use the exported variables shown in the local E2E and load-probe setup). They require a running local Supabase instance with anonymous auth and Realtime enabled.
 
-For an existing local database, apply additive migrations without resetting data, then check database permissions and concurrent host/round transitions:
+For an existing local database, apply additive migrations without resetting data, then check database permissions and concurrent member/round transitions:
 
 ```bash
 supabase migration up --local
@@ -129,6 +142,6 @@ supabase test db
 node scripts/check-round-concurrency.mjs
 ```
 
-The concurrency check uses independent `psql` sessions inside `supabase_db_poker-mvp-local` (override with `POKER_DB_CONTAINER` for another local Supabase container). It coordinates real lock waits for transfer-first, Next-first, and rolled-back host departure, verifies atomic round/host/retry state, and removes only its own fixture rooms. Docker and a running local database are required; no credentials or database reset are needed.
+The concurrency check uses independent `psql` sessions inside `supabase_db_poker-mvp-local` (override with `POKER_DB_CONTAINER` for another local Supabase container). It coordinates real lock waits for host-first and voter-first Next requests and rolled-back host departure, verifies atomic round/identity/retry state, and removes only its own fixture rooms. Docker and a running local database are required; no credentials or database reset are needed.
 
 While an outcome save is pending, estimate, Note, and other room mutations are disabled. Failed saves retain the visible draft for retry; clicking Next directly from an edited field submits its latest values atomically instead of starting a competing blur save.

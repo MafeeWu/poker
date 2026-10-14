@@ -1,4 +1,4 @@
-import { useEffect, useState, type FocusEvent } from 'react';
+import { useEffect, useRef, useState, type FocusEvent } from 'react';
 import type { EstimateSuggestion } from '../../domain/roundOutcome';
 
 export type RoundOutcomeFormProps = {
@@ -33,15 +33,21 @@ export function RoundOutcomeForm({
 }: RoundOutcomeFormProps) {
   const [estimateDraft, setEstimateDraft] = useState(() => initialEstimate(finalEstimate, suggestion));
   const [noteDraft, setNoteDraft] = useState(note ?? '');
+  const savedEstimate = initialEstimate(finalEstimate, suggestion);
+  const savedNote = note ?? '';
+  const previousOutcome = useRef({ roundId, estimate: savedEstimate, note: savedNote });
   const noteLength = Array.from(noteDraft).length;
   const noteIsOverLimit = noteLength > 240;
   const estimateIsMissing = !estimateDraft.trim();
   const isPending = pendingAction !== null;
 
   useEffect(() => {
-    setEstimateDraft(initialEstimate(finalEstimate, suggestion));
-    setNoteDraft(note ?? '');
-  }, [roundId]);
+    const previous = previousOutcome.current;
+    const isNewRound = previous.roundId !== roundId;
+    setEstimateDraft((draft) => isNewRound || draft === previous.estimate ? savedEstimate : draft);
+    setNoteDraft((draft) => isNewRound || draft === previous.note ? savedNote : draft);
+    previousOutcome.current = { roundId, estimate: savedEstimate, note: savedNote };
+  }, [roundId, savedEstimate, savedNote]);
 
   const saveDraft = () => {
     if (disabled || isPending || noteIsOverLimit) {

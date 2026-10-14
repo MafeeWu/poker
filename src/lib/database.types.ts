@@ -145,10 +145,6 @@ export type Database = {
         };
         Returns: RoomSnapshotJson;
       };
-      transfer_host: {
-        Args: { p_room_id: string; p_member_id: string };
-        Returns: RoomSnapshotJson;
-      };
       leave_room: {
         Args: { p_room_id: string; p_member_id: string };
         Returns: void;

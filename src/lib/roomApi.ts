@@ -399,16 +399,6 @@ export async function completeRoundAndStartNextRound(
   return normalizeRoomSnapshot(response);
 }
 
-export async function transferHost(roomId: string, memberId: string): Promise<RoomSnapshot> {
-  await ensureAnonymousSession();
-  const response = await rpc<RoomSnapshotJson>('transfer_host', {
-    p_room_id: roomId,
-    p_member_id: memberId,
-  });
-
-  return normalizeRoomSnapshot(response);
-}
-
 export async function fetchRoomSnapshot(roomId: string): Promise<RoomSnapshot> {
   const client = getSupabaseClient();
   const { data: userData } = await client.auth.getUser();

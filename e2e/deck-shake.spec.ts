@@ -60,11 +60,11 @@ test('responsive poker choices stay centered without displaying the selected vot
 });
 
 for (const reducedMotion of ['no-preference', 'reduce'] as const) {
-  test(`votes and revotes do not flash the deck or host controls during submission (${reducedMotion})`, async ({ page, browser }) => {
+  test(`votes and revotes do not flash the deck or round controls during submission (${reducedMotion})`, async ({ page, browser }) => {
     await page.emulateMedia({ reducedMotion });
     const voterContext = await browser.newContext();
     let release: (() => void) | undefined;
-    const controls = page.locator('.card-button, .host-controls button, .host-controls select');
+    const controls = page.locator('.card-button, .round-controls button');
     const appearance = () => controls.evaluateAll((elements) => elements.map((element) => {
       const style = getComputedStyle(element);
       return {

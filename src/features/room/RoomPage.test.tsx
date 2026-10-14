@@ -7,7 +7,7 @@ import { CardDeck } from './CardDeck';
 import { ConnectionStatus } from './ConnectionStatus';
 import { RoundBoard } from './RoundBoard';
 import { RoomPage } from './RoomPage';
-import { HostControls } from './HostControls';
+import { RoundControls } from './RoundControls';
 import { saveRecentRoom } from './roomCopy';
 
 const roomSyncState = vi.hoisted(() => ({ status: 'connected' as 'connected' | 'reconnecting' }));
@@ -20,7 +20,6 @@ const roomApi = vi.hoisted(() => ({
   revealRound: vi.fn(),
   updateRoundOutcome: vi.fn(),
   completeRoundAndStartNextRound: vi.fn(),
-  transferHost: vi.fn(),
 }));
 
 vi.mock('../../lib/roomApi', async () => {
@@ -121,7 +120,6 @@ describe('room UI', () => {
     roomApi.updateRoundOutcome.mockReset();
     roomApi.completeRoundAndStartNextRound.mockReset();
     roomApi.revealRound.mockReset();
-    roomApi.transferHost.mockReset();
     roomApi.restoreRoomSession.mockReset().mockResolvedValue(null);
   });
   it('provides a way home while the room is loading and after joining is required', async () => {
@@ -258,7 +256,7 @@ describe('room UI', () => {
     Object.defineProperty(window, 'matchMedia', { writable: true, value: originalMatchMedia });
   });
 
-  it('renders host controls only for the host role', () => {
+  it('lets a voter reveal votes', () => {
     render(<RoomPage roomCode="AB12CD34" initialSnapshot={votingSnapshot({
       members: [
         { id: 'member-host', nickname: 'Host', role: 'host', joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z', online: true, hasVoted: false, vote: null },
@@ -266,12 +264,40 @@ describe('room UI', () => {
       ],
       myMemberId: 'member-1',
     })} />);
-    expect(screen.queryByRole('button', { name: /reveal/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /reveal/i })).toBeEnabled();
   });
 
-  it('disables the host control matching the pending action', () => {
+  it.each(['member-host', 'member-1'])('allows %s to edit the outcome and advance the round', (myMemberId) => {
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={{ ...revealedSnapshot(), myMemberId }} />);
+    expect(screen.getByRole('textbox', { name: 'Final estimate' })).toHaveValue('5');
+    expect(screen.getByRole('textbox', { name: 'Note' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Next round' })).toBeEnabled();
+  });
+
+  it('does not offer manual host transfer', () => {
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={votingSnapshot({ myMemberId: 'member-host' })} />);
+    expect(screen.queryByRole('button', { name: 'Transfer host' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Transfer host' })).not.toBeInTheDocument();
+  });
+
+  it('keeps observer round controls read-only even with a stale host pointer', () => {
+    const state = revealedSnapshot();
+    state.myMemberId = 'member-1';
+    state.room.hostMemberId = 'member-1';
+    state.members = state.members.map((member) => member.id === 'member-1'
+      ? { ...member, role: 'observer', hasVoted: false, vote: null }
+      : member);
+    state.round.note = 'Shared result';
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={state} />);
+    expect(screen.queryByRole('button', { name: 'Next round' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Final estimate' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Note' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('current-round-note')).toHaveTextContent('Shared result');
+  });
+
+  it('disables the round control matching the pending action', () => {
     render(
-      <HostControls
+      <RoundControls
         state={votingSnapshot({ myMemberId: 'member-host' })}
         status="connected"
         pendingAction="reveal"
@@ -279,46 +305,38 @@ describe('room UI', () => {
         onSaveOutcome={vi.fn()}
         onNextRound={vi.fn()}
         outcomeError={null}
-        onTransferHost={vi.fn()}
       />,
     );
 
     expect(screen.getByRole('button', { name: /reveal/i })).toBeDisabled();
   });
 
-  it('disables every host mutation while the room is reconnecting', () => {
+  it('disables every round mutation while the room is reconnecting', () => {
     const state = votingSnapshot({ myMemberId: 'member-host' });
     const controls = {
       onReveal: vi.fn(),
       onSaveOutcome: vi.fn(),
       onNextRound: vi.fn(),
       outcomeError: null,
-      onTransferHost: vi.fn(),
     };
     const { rerender } = render(
-      <HostControls state={state} status="connected" {...controls} />,
+      <RoundControls state={state} status="connected" {...controls} />,
     );
 
     expect(screen.getByRole('button', { name: /reveal/i })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /transfer host/i })).toBeEnabled();
-    expect(screen.getByRole('combobox', { name: /transfer host/i })).toBeEnabled();
 
-    rerender(<HostControls state={state} status="reconnecting" {...controls} />);
+    rerender(<RoundControls state={state} status="reconnecting" {...controls} />);
 
     expect(screen.getByRole('button', { name: /reveal/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /transfer host/i })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: /transfer host/i })).toBeDisabled();
 
     const revealed = { ...revealedSnapshot(), myMemberId: 'member-host' };
-    rerender(<HostControls state={revealed} status="connected" {...controls} />);
+    rerender(<RoundControls state={revealed} status="connected" {...controls} />);
     expect(screen.getByRole('button', { name: /next round/i })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /transfer host/i })).toBeEnabled();
-    expect(screen.getByRole('combobox', { name: /transfer host/i })).toBeEnabled();
 
-    rerender(<HostControls state={revealed} status="reconnecting" {...controls} />);
+    rerender(<RoundControls state={revealed} status="reconnecting" {...controls} />);
     expect(screen.getByRole('button', { name: /next round/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /transfer host/i })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: /transfer host/i })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Final estimate' })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Note' })).toBeDisabled();
 
     const archived = votingSnapshot({
       myMemberId: 'member-host',
@@ -333,13 +351,11 @@ describe('room UI', () => {
         archivedAt: '2024-01-01T00:06:00.000Z',
       },
     });
-    rerender(<HostControls state={archived} status="connected" {...controls} />);
+    rerender(<RoundControls state={archived} status="connected" {...controls} />);
     expect(screen.queryByRole('button', { name: /next round/i })).not.toBeInTheDocument();
 
-    rerender(<HostControls state={archived} status="reconnecting" {...controls} />);
+    rerender(<RoundControls state={archived} status="reconnecting" {...controls} />);
     expect(screen.queryByRole('button', { name: /next round/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /transfer host/i })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: /transfer host/i })).toBeDisabled();
   });
 
   it('blocks voting while the room is reconnecting', async () => {
@@ -365,8 +381,15 @@ describe('room UI', () => {
     expect(screen.getByTestId('member-card-member-host')).toHaveAttribute('data-vote-status', 'pending');
   });
 
-  it('shows a saved current-round Note to room members who are not the host', () => {
+  it('shows a saved current-round Note as read-only to an observer', () => {
     const memberSnapshot = revealedSnapshot();
+    memberSnapshot.myMemberId = 'member-observer';
+    memberSnapshot.myVote = null;
+    memberSnapshot.members.push({
+      id: 'member-observer', nickname: 'Observer', role: 'observer',
+      joinedAt: '2024-01-01T00:00:00.000Z', lastSeenAt: '2024-01-01T00:00:00.000Z',
+      online: true, hasVoted: false, vote: null,
+    });
     memberSnapshot.round.note = 'Keep the scope small';
     render(<RoomPage roomCode="AB12CD34" initialSnapshot={memberSnapshot} />);
 
@@ -374,11 +397,11 @@ describe('room UI', () => {
     expect(screen.queryByRole('textbox', { name: 'Note' })).not.toBeInTheDocument();
   });
 
-  it('sends the latest outcome to one atomic next-round action and keeps archived history visible', async () => {
+  it.each(['member-host', 'member-1'])('sends %s latest outcome atomically and keeps archived history visible', async (myMemberId) => {
     const user = userEvent.setup();
-    const current = { ...revealedSnapshot(), myMemberId: 'member-host' };
+    const current = { ...revealedSnapshot(), myMemberId };
     const next = votingSnapshot({
-      myMemberId: 'member-host',
+      myMemberId,
       round: { id: 'round-2', number: 2, status: 'voting', finalEstimate: null, note: null, startedAt: '2026-10-08T12:06:00.000Z', revealedAt: null, archivedAt: null },
       recentRounds: [{
         id: 'round-1', number: 1, status: 'archived', finalEstimate: '8', note: 'Ship safely',
@@ -444,8 +467,6 @@ describe('room UI', () => {
     expect(screen.getByLabelText('Final estimate')).toBeDisabled();
     expect(note).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Next round' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Transfer host' })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: 'Transfer host' })).toBeDisabled();
     await user.type(note, ' ignored while saving');
     await user.click(screen.getByRole('button', { name: 'Next round' }));
     expect(note).toHaveValue('Saved draft');
@@ -473,25 +494,18 @@ describe('room UI', () => {
     expect(screen.getByRole('button', { name: 'Next round' })).toBeEnabled();
   });
 
-  it.each(['vote', 'reveal', 'transfer'] as const)('disables the deck and all host controls during a delayed %s', async (action) => {
+  it.each(['vote', 'reveal'] as const)('disables the deck and all round controls during a voter delayed %s', async (action) => {
     const user = userEvent.setup();
-    const current = votingSnapshot({ myMemberId: 'member-host' });
+    const current = votingSnapshot();
     let reject!: (reason: Error) => void;
     const pending = new Promise<RoomSnapshot>((_res, rej) => { reject = rej; });
     roomApi.submitVote.mockReturnValueOnce(pending);
     roomApi.revealRound.mockReturnValueOnce(pending);
-    roomApi.transferHost.mockReturnValueOnce(pending);
     render(<RoomPage roomCode="AB12CD34" initialSnapshot={current} />);
 
     if (action === 'vote') await user.click(screen.getByRole('button', { name: '5' }));
-    else if (action === 'reveal') await user.click(screen.getByRole('button', { name: 'Reveal' }));
-    else {
-      await user.selectOptions(screen.getByRole('combobox', { name: 'Transfer host' }), 'member-1');
-      await user.click(screen.getByRole('button', { name: 'Transfer host' }));
-    }
+    else await user.click(screen.getByRole('button', { name: 'Reveal' }));
     expect(screen.getByRole('button', { name: 'Reveal' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Transfer host' })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: 'Transfer host' })).toBeDisabled();
     for (const card of screen.getAllByTestId('card-button')) expect(card).toBeDisabled();
     expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'true');
     await act(async () => { reject(new Error('Action failed')); });
@@ -499,17 +513,13 @@ describe('room UI', () => {
     expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false');
   });
 
-  it('freezes the outcome while host transfer is pending', async () => {
-    let reject!: (reason: Error) => void;
-    roomApi.transferHost.mockReturnValueOnce(new Promise<RoomSnapshot>((_res, rej) => { reject = rej; }));
-    render(<RoomPage roomCode="AB12CD34" initialSnapshot={{ ...revealedSnapshot(), myMemberId: 'member-host' }} />);
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Transfer host' }), 'member-1');
-    await userEvent.click(screen.getByRole('button', { name: 'Transfer host' }));
-    expect(screen.getByLabelText('Final estimate')).toBeDisabled();
-    expect(screen.getByRole('textbox', { name: 'Note' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Next round' })).toBeDisabled();
-    await act(async () => { reject(new Error('Transfer failed')); });
-    expect(screen.getByLabelText('Final estimate')).toBeEnabled();
+  it('updates the table when a voter reveals', async () => {
+    roomApi.revealRound.mockResolvedValueOnce(revealedSnapshot());
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={votingSnapshot()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Reveal' }));
+    expect(await screen.findByTestId('round-status')).toHaveTextContent('Revealed');
+    expect(screen.getByRole('button', { name: 'Next round' })).toBeEnabled();
+    expect(screen.getByTestId('member-card-member-host')).toHaveTextContent('5');
   });
 
   it('requires explicit identity before joining a deep-linked room', async () => {

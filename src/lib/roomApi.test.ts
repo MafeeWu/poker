@@ -310,10 +310,10 @@ describe('roomApi', () => {
     } as any);
     vi.spyOn(supabase, 'rpc').mockResolvedValue({
       data: null,
-      error: { message: 'Host membership required' },
+      error: { message: 'Voting privileges required' },
     } as any);
 
-    await expect(updateRoundOutcome('room-1', 'round-1', '5', null)).rejects.toThrow('Host membership required');
+    await expect(updateRoundOutcome('room-1', 'round-1', '5', null)).rejects.toThrow('Voting privileges required');
   });
 
   it('renews only the authenticated room member and propagates rejected heartbeats', async () => {

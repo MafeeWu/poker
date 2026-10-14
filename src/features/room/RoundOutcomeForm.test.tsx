@@ -66,6 +66,21 @@ describe('RoundOutcomeForm', () => {
     expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue('Saved next-round note');
   });
 
+  it('refreshes untouched outcome fields when another member saves', () => {
+    const { rerender, props } = renderForm({ finalEstimate: '5', note: 'Original note' });
+    rerender(<RoundOutcomeForm {...props} finalEstimate="8" note="Shared update" />);
+    expect(screen.getByRole('textbox', { name: 'Final estimate' })).toHaveValue('8');
+    expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue('Shared update');
+  });
+
+  it.each(['Final estimate', 'Note'])('preserves a local %s draft while refreshing the untouched field', (field) => {
+    const { rerender, props } = renderForm({ finalEstimate: '5', note: 'Original note' });
+    fireEvent.change(screen.getByRole('textbox', { name: field }), { target: { value: 'My draft' } });
+    rerender(<RoundOutcomeForm {...props} finalEstimate="8" note="Shared update" />);
+    expect(screen.getByRole('textbox', { name: 'Final estimate' })).toHaveValue(field === 'Final estimate' ? 'My draft' : '8');
+    expect(screen.getByRole('textbox', { name: 'Note' })).toHaveValue(field === 'Note' ? 'My draft' : 'Shared update');
+  });
+
   it('reports an over-limit Unicode Note without truncating the draft', async () => {
     const user = userEvent.setup();
     renderForm();

@@ -226,8 +226,8 @@ RESET ROLE;
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '33333333-3333-4333-8333-333333333333', true);
 SELECT throws_like(
-  $$ SELECT transfer_host((SELECT room_id FROM poker_test_state), (SELECT user_a_member_id FROM poker_test_state)); $$,
-  '%membership%',
+  $$ SELECT reveal_round((SELECT room_id FROM poker_test_state), (SELECT round_id FROM poker_test_state)); $$,
+  '%Membership required%',
   'third user cannot mutate room'
 );
 
@@ -238,9 +238,9 @@ WHERE id = (SELECT user_b_member_id FROM poker_test_state);
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
 SELECT is(
-  (SELECT transfer_host((SELECT room_id FROM poker_test_state), (SELECT user_b_member_id FROM poker_test_state))->'room'->>'hostMemberId'),
-  (SELECT user_b_member_id::text FROM poker_test_state),
-  'host transfer succeeds for a current voter'
+  (SELECT build_room_snapshot((SELECT room_id FROM poker_test_state), '11111111-1111-4111-8111-111111111111'::uuid)->'room'->>'hostMemberId'),
+  (SELECT user_a_member_id::text FROM poker_test_state),
+  'shared round controls retain the original host identity'
 );
 
 RESET ROLE;
@@ -264,17 +264,18 @@ SET transition_round_id = (
 );
 
 SET ROLE authenticated;
-SELECT set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
+SELECT set_config('request.jwt.claim.sub', '33333333-3333-4333-8333-333333333333', true);
+UPDATE poker_test_state SET user_c_member_id = (public.join_room(room_code, 'Charlie', 'observer')->>'myMemberId')::uuid;
 SELECT throws_like(
-  $$ SELECT update_round_outcome((SELECT room_id FROM poker_test_state), (SELECT transition_round_id FROM poker_test_state), '5', 'not host'); $$,
-  '%Host%',
-  'non-host cannot update a round outcome'
+  $$ SELECT update_round_outcome((SELECT room_id FROM poker_test_state), (SELECT transition_round_id FROM poker_test_state), '5', 'observer draft'); $$,
+  '%privileges%',
+  'observer cannot update a round outcome'
 );
 
 SELECT throws_like(
-  $$ SELECT complete_round_and_start_next_round((SELECT room_id FROM poker_test_state), (SELECT transition_round_id FROM poker_test_state), '5', 'not host'); $$,
-  '%Host%',
-  'non-host cannot complete a round or start the next'
+  $$ SELECT complete_round_and_start_next_round((SELECT room_id FROM poker_test_state), (SELECT transition_round_id FROM poker_test_state), '5', 'observer draft'); $$,
+  '%privileges%',
+  'observer cannot complete a round or start the next'
 );
 
 RESET ROLE;
@@ -282,7 +283,7 @@ SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '22222222-2222-4222-8222-222222222222', true);
 SELECT lives_ok(
   $$ SELECT update_round_outcome((SELECT room_id FROM poker_test_state), (SELECT transition_round_id FROM poker_test_state), NULL, ''); $$,
-  'host may leave the estimate unset and save an empty note'
+  'voter may leave the estimate unset and save an empty note'
 );
 
 SELECT is(
@@ -310,7 +311,7 @@ SELECT lives_ok(
        '5',
        repeat('n', 240)
      ); $$,
-  'host may save a 240-character note'
+  'voter may save a 240-character note'
 );
 
 SELECT is(
@@ -322,7 +323,7 @@ SELECT is(
 SELECT is(
   (SELECT build_room_snapshot((SELECT room_id FROM poker_test_state), '22222222-2222-4222-8222-222222222222'::uuid)->'round'->>'finalEstimate'),
   '5',
-  'snapshot returns the host-edited final estimate'
+  'snapshot returns the voter-edited final estimate'
 );
 
 SELECT throws_like(
@@ -345,7 +346,7 @@ SELECT throws_like(
 SELECT lives_ok(
   $$ UPDATE poker_test_state
      SET transition_response = complete_round_and_start_next_round(room_id, transition_round_id, '8', 'atomic note'); $$,
-  'host completes the round and starts the next round atomically'
+  'voter completes the round and starts the next round atomically'
 );
 
 SELECT is(
@@ -451,12 +452,12 @@ SELECT ok(
 
 SELECT ok(
   has_function_privilege('authenticated', 'public.update_round_outcome(uuid, uuid, text, text)', 'EXECUTE'),
-  'authenticated members can invoke the host-guarded outcome RPC'
+  'authenticated members can invoke the role-guarded outcome RPC'
 );
 
 SELECT ok(
   has_function_privilege('authenticated', 'public.complete_round_and_start_next_round(uuid, uuid, text, text)', 'EXECUTE'),
-  'authenticated members can invoke the host-guarded atomic next-round RPC'
+  'authenticated members can invoke the role-guarded atomic next-round RPC'
 );
 
 SELECT * FROM finish();

@@ -353,7 +353,6 @@ p { color: var(--muted); }
 
 .entry-form input:not([type="radio"]),
 .entry-form select,
-.host-controls select,
 .round-outcome input,
 .round-outcome textarea {
   width: 100%;
@@ -599,7 +598,7 @@ input::placeholder { color: #72746a; opacity: 1; }
 .card-button:nth-child(4n) { --card-tilt: 3deg; }
 .card-button:hover:not(:disabled),
 .room-shell.is-submitting-vote .card-button:hover { z-index: 2; transform: translateY(-7px) rotate(0); box-shadow: 3px 7px 0 var(--edge); }
-.room-shell.is-submitting-vote :is(.card-button, .host-controls button, .host-controls select):disabled {
+.room-shell.is-submitting-vote :is(.card-button, .round-controls button):disabled {
   opacity: 1;
   cursor: wait;
 }
@@ -719,11 +718,8 @@ input::placeholder { color: #72746a; opacity: 1; }
 .round-history h3 { color: var(--paper-strong); font-size: 0.85rem; }
 .round-history li p { overflow-wrap: anywhere; font-size: 0.8rem; }
 
-.host-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1.25rem; padding: 1.25rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
-.host-controls > div { display: flex; flex-wrap: wrap; align-items: flex-end; min-width: 0; max-width: 100%; gap: 0.65rem; margin-left: auto; }
-.host-controls label { display: grid; min-width: 0; gap: 0.4rem; color: var(--paper); font-size: 0.8rem; font-weight: 700; }
-.host-controls > div > label { flex: 1; }
-.host-controls select { min-height: 44px; padding: 0.55rem 0.65rem; }
+.round-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1.25rem; padding: 1.25rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+.round-controls label { display: grid; min-width: 0; gap: 0.4rem; color: var(--paper); font-size: 0.8rem; font-weight: 700; }
 .round-outcome { display: grid; flex: 1 1 100%; min-width: 0; gap: 0.8rem; }
 .round-outcome textarea { min-height: 5rem; resize: vertical; font-family: "Room Numerals", var(--font-body); }
 .round-outcome .arcade-button { justify-self: start; }
@@ -783,7 +779,7 @@ input::placeholder { color: #72746a; opacity: 1; }
   .room-header { grid-template-columns: minmax(0, 1fr); }
   .table-shell { grid-template-columns: minmax(0, 1fr); }
   .table-panel { padding: 1.25rem; }
-  .host-controls { padding: 1rem; }
+  .round-controls { padding: 1rem; }
 }
 
 @media (max-width: 480px) {
@@ -818,7 +814,6 @@ input::placeholder { color: #72746a; opacity: 1; }
   .member-legend { gap: 0.5rem 0.65rem; }
   .member-legend > span { font-size: 0.6rem; }
   .round-history { padding: 1rem; }
-  .host-controls > div { width: 100%; margin-left: 0; }
   .state-panel { padding: 1.5rem; }
 }
 

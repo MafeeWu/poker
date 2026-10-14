@@ -1,34 +1,28 @@
-import { useState } from 'react';
 import { suggestFinalEstimate } from '../../domain/roundOutcome';
 import type { RoomSnapshot } from '../../lib/roomApi';
 import type { ConnectionStatusValue } from './ConnectionStatus';
 import { RoundOutcomeForm } from './RoundOutcomeForm';
 
-export type HostControlsProps = {
+export type RoundControlsProps = {
   state: RoomSnapshot;
   status: ConnectionStatusValue;
   onReveal: () => void;
   onSaveOutcome: (finalEstimate: string | null, note: string | null) => void;
   onNextRound: (finalEstimate: string, note: string | null) => void;
-  onTransferHost: (memberId: string) => void;
   outcomeError: string | null;
-  pendingAction?: 'vote' | 'reveal' | 'outcome' | 'next' | 'transfer' | null;
+  pendingAction?: 'vote' | 'reveal' | 'outcome' | 'next' | null;
 };
 
-export function HostControls({ state, status, onReveal, onSaveOutcome, onNextRound, onTransferHost, outcomeError, pendingAction = null }: HostControlsProps) {
+export function RoundControls({ state, status, onReveal, onSaveOutcome, onNextRound, outcomeError, pendingAction = null }: RoundControlsProps) {
   const currentMember = state.members.find((member) => member.id === state.myMemberId);
-  const isHost = currentMember?.role === 'host' || state.room.hostMemberId === state.myMemberId;
   const actionsUnavailable = status !== 'connected' || pendingAction !== null;
-  const [transferTarget, setTransferTarget] = useState('');
 
-  if (!isHost) {
+  if (currentMember?.role !== 'host' && currentMember?.role !== 'voter') {
     return null;
   }
 
-  const transferOptions = state.members.filter((member) => member.id !== state.myMemberId);
-
   return (
-    <section className="host-controls">
+    <section className="round-controls" aria-label="Round controls">
       {state.round.status === 'voting' ? <button type="button" className="arcade-button" data-testid="reveal-button" onClick={onReveal} disabled={actionsUnavailable || pendingAction === 'reveal'}>Reveal</button> : null}
 
       {state.round.status === 'revealed' ? (
@@ -43,23 +37,6 @@ export function HostControls({ state, status, onReveal, onSaveOutcome, onNextRou
           onSave={onSaveOutcome}
           onNextRound={onNextRound}
         />
-      ) : null}
-
-      {transferOptions.length > 0 ? (
-        <div>
-          <label>
-            Transfer host
-            <select value={transferTarget} onChange={(event) => setTransferTarget(event.target.value)} disabled={actionsUnavailable || pendingAction === 'transfer'}>
-              <option value="">Select member</option>
-              {transferOptions.map((member) => (
-                <option key={member.id} value={member.id}>{member.nickname}</option>
-              ))}
-            </select>
-          </label>
-          <button type="button" className="arcade-button" onClick={() => transferTarget && onTransferHost(transferTarget)} disabled={actionsUnavailable || pendingAction === 'transfer'}>
-            Transfer host
-          </button>
-        </div>
       ) : null}
     </section>
   );

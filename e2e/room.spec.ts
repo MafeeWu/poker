@@ -226,10 +226,10 @@ test('three independent members complete two rounds without exposing votes befor
     await hostPage.getByLabel('Note').fill('Ship the smaller slice');
     await hostPage.getByRole('heading', { name: 'Round outcome' }).click();
     for (const page of [voterOnePage, voterTwoPage]) {
-      await expect(page.getByTestId('current-round-note')).toHaveText('Note: Ship the smaller slice');
+      await expect(page.getByLabel('Note')).toHaveValue('Ship the smaller slice');
     }
 
-    await hostPage.getByRole('button', { name: 'Next round' }).click();
+    await voterOnePage.getByRole('button', { name: 'Next round' }).click();
     for (const page of pages) {
       await expect(page.getByTestId('round-board').getByRole('heading')).toHaveText('Round 2');
       await expect(page.getByTestId('round-status')).toHaveText(/waiting for votes/i);
@@ -251,7 +251,7 @@ test('three independent members complete two rounds without exposing votes befor
       await expectVotesHidden(page, nicknames);
     }
 
-    await hostPage.getByTestId('reveal-button').click();
+    await voterTwoPage.getByTestId('reveal-button').click();
     for (const page of pages) {
       await expect(page.getByTestId('round-status')).toHaveText(/revealed/i);
       await expectRevealedVotes(page, secondRoundVotes);
@@ -266,6 +266,59 @@ test('three independent members complete two rounds without exposing votes befor
   } finally {
     await Promise.all(diagnostics.map((item) => item.stop()));
     await Promise.all([hostContext?.close(), voterOneContext?.close(), voterTwoContext?.close()]);
+  }
+});
+
+test('observers stay read-only while a voter reveals, edits and advances the round', async ({ browser }) => {
+  const hostContext = await browser.newContext();
+  const voterContext = await browser.newContext();
+  const observerContext = await browser.newContext();
+  try {
+    const host = await hostContext.newPage();
+    const voter = await voterContext.newPage();
+    const observer = await observerContext.newPage();
+    await createRoom(host, 'Shared controls fixture', 'Control Host');
+    const code = roomCode(host);
+    await joinExistingRoom(voter, code, 'Control Voter', 'voter');
+    await joinExistingRoom(observer, code, 'Control Observer', 'observer');
+    for (const page of [host, voter, observer]) {
+      await expect(page.getByTestId('member-count')).toHaveText('3 members');
+      await expect(page.getByRole('button', { name: 'Transfer host' })).toHaveCount(0);
+      await expect(page.getByRole('combobox', { name: 'Transfer host' })).toHaveCount(0);
+    }
+    await expect(observer.getByTestId('reveal-button')).toHaveCount(0);
+    await expect(observer.getByRole('group', { name: 'Fibonacci cards' })).toHaveCount(0);
+    await voter.getByRole('button', { name: '5', exact: true }).click();
+    for (const page of [host, voter, observer]) {
+      await expect(memberCard(page, 'Control Voter')).toHaveAttribute('data-vote-status', 'voted');
+      await expect(page.getByTestId('member-card-front')).toHaveCount(0);
+    }
+
+    await voter.getByTestId('reveal-button').click();
+    for (const page of [host, voter, observer]) {
+      await expect(page.getByTestId('round-status')).toHaveText('Revealed');
+      await expect(memberCard(page, 'Control Voter').getByTestId('member-card-front')).toHaveText('5');
+    }
+    await expect(observer.getByRole('region', { name: 'Round controls' })).toHaveCount(0);
+    await expect(observer.getByRole('textbox', { name: 'Note' })).toHaveCount(0);
+    await expect(observer.getByRole('button', { name: 'Next round' })).toHaveCount(0);
+
+    await voter.getByLabel('Final estimate').fill('13');
+    await voter.getByLabel('Note').click();
+    await expect(voter.getByLabel('Note')).toBeEnabled();
+    await voter.getByLabel('Note').fill('Agreed by the team');
+    await voter.getByRole('heading', { name: 'Round outcome' }).click();
+    await expect(host.getByLabel('Final estimate')).toHaveValue('13');
+    await expect(host.getByLabel('Note')).toHaveValue('Agreed by the team');
+    await expect(observer.getByTestId('current-round-note')).toHaveText('Note: Agreed by the team');
+    await voter.getByRole('button', { name: 'Next round' }).click();
+    for (const page of [host, voter, observer]) {
+      await expect(page.getByTestId('round-board').getByRole('heading')).toHaveText('Round 2');
+      await expect(page.getByRole('region', { name: 'Round history' })).toContainText('Final estimate: 13');
+      await expect(page.getByRole('region', { name: 'Round history' })).toContainText('Agreed by the team');
+    }
+  } finally {
+    await Promise.all([hostContext.close(), voterContext.close(), observerContext.close()]);
   }
 });
 

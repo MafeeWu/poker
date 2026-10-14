@@ -63,13 +63,13 @@ async function runScenario(order) {
   const admin = session(`${prefix}_admin`);
   const blocker = session(`${prefix}_blocker`);
   const next = session(`${prefix}_next`);
-  const transfer = session(`${prefix}_transfer`);
+  const other = session(`${prefix}_other`);
   const hostUser = randomUUID();
   const targetUser = randomUUID();
   let roomId;
   const tasks = [];
   try {
-    await Promise.all([admin.ready, blocker.ready, next.ready, transfer.ready]);
+    await Promise.all([admin.ready, blocker.ready, next.ready, other.ready]);
     const created = JSON.parse((await admin.query(`${asUser(hostUser)}
       SELECT public.create_room('Round lock regression', 'Lock Host'); RESET ROLE;`))[0]);
     roomId = created.room.id;
@@ -77,11 +77,11 @@ async function runScenario(order) {
     const hostId = created.myMemberId;
     const joined = JSON.parse((await admin.query(`${asUser(targetUser)}
       SELECT public.join_room('${created.room.code}', 'Lock Target', 'voter'); RESET ROLE;`))[0]);
-    const targetId = joined.myMemberId;
+    assert.equal(joined.members.find((member) => member.id === joined.myMemberId).role, 'voter');
     await admin.query(`${asUser(hostUser)}
       SELECT public.reveal_round('${roomId}', '${roundId}'); RESET ROLE;`);
     await next.query(asUser(hostUser));
-    await transfer.query(asUser(hostUser));
+    await other.query(asUser(targetUser));
 
     const waitForLock = async (actor) => {
       const deadline = Date.now() + 5_000;
@@ -102,31 +102,32 @@ async function runScenario(order) {
       return task;
     };
     const nextSql = `SELECT public.complete_round_and_start_next_round('${roomId}', '${roundId}', '8', 'Concurrent result');`;
-    const transferSql = `SELECT public.transfer_host('${roomId}', '${targetId}');`;
+    const otherNextSql = `SELECT public.complete_round_and_start_next_round('${roomId}', '${roundId}', '13', 'Late member result');`;
     let nextTask;
-    let transferTask;
-    if (order === 'next-first') {
+    let otherTask;
+    if (order === 'host-first' || order === 'voter-first') {
       await blocker.query(`BEGIN; SELECT id FROM public.rounds WHERE id = '${roundId}' FOR UPDATE;`);
+      if (order === 'voter-first') {
+        await next.query(asUser(targetUser));
+        await other.query(asUser(hostUser));
+      }
       nextTask = start(next, nextSql);
       await waitForLock('next');
-      transferTask = start(transfer, transferSql);
-      await waitForLock('transfer');
+      otherTask = start(other, otherNextSql);
+      await waitForLock('other');
     } else {
-      const lockedMember = order === 'leave-first' ? hostId : targetId;
-      await blocker.query(`BEGIN; SELECT id FROM public.room_members WHERE id = '${lockedMember}' FOR UPDATE;`);
-      transferTask = start(transfer, order === 'leave-first'
-        ? `BEGIN; SELECT public.leave_room('${roomId}', '${hostId}'); ROLLBACK;`
-        : transferSql);
-      await waitForLock('transfer');
+      await next.query(asUser(targetUser));
+      await other.query(asUser(hostUser));
+      await blocker.query(`BEGIN; SELECT id FROM public.room_members WHERE id = '${hostId}' FOR UPDATE;`);
+      otherTask = start(other, `BEGIN; SELECT public.leave_room('${roomId}', '${hostId}'); ROLLBACK;`);
+      await waitForLock('other');
       nextTask = start(next, nextSql);
       await waitForLock('next');
     }
     await blocker.query('COMMIT;');
-    const [nextResult, transferResult] = await Promise.all([nextTask, transferTask]);
-    assert.ifError(transferResult.error);
-    const completesRound = order !== 'transfer-first';
-    if (completesRound) assert.ifError(nextResult.error);
-    else assert.match(nextResult.error?.message || '', /Host membership required/);
+    const [nextResult, otherResult] = await Promise.all([nextTask, otherTask]);
+    assert.ifError(otherResult.error);
+    assert.ifError(nextResult.error);
 
     const [stateLine] = await admin.query(`SELECT jsonb_build_object(
       'host', (SELECT host_member_id FROM public.rooms WHERE id = '${roomId}'),
@@ -135,26 +136,25 @@ async function runScenario(order) {
         ORDER BY round_number) FROM public.rounds WHERE room_id = '${roomId}')
     );`);
     const state = JSON.parse(stateLine);
-    assert.equal(state.host, order === 'leave-first' ? hostId : targetId);
+    assert.equal(state.host, hostId);
     assert.equal(state.hosts, 1);
-    assert.deepEqual(state.rounds, completesRound
-      ? [{ status: 'archived', estimate: '8', note: 'Concurrent result' }, { status: 'voting', estimate: null, note: null }]
-      : [{ status: 'revealed', estimate: null, note: null }]);
-    const retry = JSON.parse((await admin.query(`${asUser(order === 'leave-first' ? hostUser : targetUser)}
+    assert.deepEqual(state.rounds,
+      [{ status: 'archived', estimate: '8', note: 'Concurrent result' }, { status: 'voting', estimate: null, note: null }]);
+    const retry = JSON.parse((await admin.query(`${asUser(targetUser)}
       SELECT public.complete_round_and_start_next_round('${roomId}', '${roundId}', '13', 'Safe retry'); RESET ROLE;`))[0]);
     assert.equal(retry.round.number, 2);
-    assert.equal(retry.recentRounds[0].finalEstimate, completesRound ? '8' : '13');
-    assert.equal(retry.recentRounds[0].note, completesRound ? 'Concurrent result' : 'Safe retry');
+    assert.equal(retry.recentRounds[0].finalEstimate, '8');
+    assert.equal(retry.recentRounds[0].note, 'Concurrent result');
     assert.equal(retry.members.filter((member) => member.role === 'host').length, 1);
-    console.log(`PASS ${order}: independent sessions, no deadlock, authoritative host and atomic round/retry invariants`);
+    console.log(`PASS ${order}: independent members, no deadlock, unchanged host and atomic round/retry invariants`);
   } finally {
     // Release barriers before draining actors, then remove only this run's fixture.
     await blocker.close();
     await Promise.all(tasks);
-    await Promise.all([next.close(), transfer.close()]);
+    await Promise.all([next.close(), other.close()]);
     if (roomId) await admin.query(`RESET ROLE; DELETE FROM public.rooms WHERE id = '${roomId}';`);
     await admin.close();
   }
 }
 
-for (const order of ['transfer-first', 'next-first', 'leave-first']) await runScenario(order);
+for (const order of ['host-first', 'voter-first', 'leave-first']) await runScenario(order);

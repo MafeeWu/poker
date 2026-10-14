@@ -12,11 +12,17 @@ The deployed database is initialized in this order:
 6. `20261008144700_revoke_legacy_round_rpcs.sql` removes access to obsolete round mutations.
 7. `20261009033000_align_room_host_lock_order.sql` aligns host-operation lock ordering.
 8. `20261009061000_enforce_unique_room_nicknames.sql` resolves legacy duplicate names and enforces room-local uniqueness.
+9. `20261013093000_allow_voters_to_manage_rounds.sql` allows hosts and voters to reveal, edit outcomes, and advance rounds, keeps observers read-only, aligns room/member/round lock ordering, and removes the manual `transfer_host` RPC.
 
 Apply all files in `supabase/migrations` in chronological order. `supabase/seed.sql`
 is for local development only; do not import local test rooms into production.
 For an existing hosted project, use `supabase db push --linked --dry-run` before
 `supabase db push --linked`. Never reset a hosted database.
+
+Apply migration 9 to the existing backend before publishing the shared-control
+frontend. Uploading only `dist` does not change database permissions. The
+migration preserves existing rooms, members, votes, and history; creator/host
+identity is retained, but no round action requires host ownership.
 
 ## Anonymous auth and browser environment variables
 

@@ -47,8 +47,8 @@ test('closing and reopening the browser profile restores the original voter and 
     await expect(memberCard(reopenedPage, 'Restart Voter')).toHaveAttribute('data-testid', memberId!);
     await expect(memberCard(reopenedPage, 'Restart Voter')).toHaveAccessibleName(/Restart Voter, voter,/);
     await expect(reopenedPage.getByRole('button', { name: '8 selected', exact: true })).toHaveAttribute('aria-pressed', 'true');
-    await expect(reopenedPage.getByTestId('reveal-button')).toHaveCount(0);
-    await hostPage.getByTestId('reveal-button').click();
+    await expect(reopenedPage.getByTestId('reveal-button')).toBeEnabled();
+    await reopenedPage.getByTestId('reveal-button').click();
     await expect(memberCard(reopenedPage, 'Restart Voter').getByTestId('member-card-front')).toHaveText('8');
   } finally {
     await Promise.all([hostContext.close(), guestBrowser?.close()]);
