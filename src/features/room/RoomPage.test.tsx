@@ -264,7 +264,7 @@ describe('room UI', () => {
       ],
       myMemberId: 'member-1',
     })} />);
-    expect(screen.getByRole('button', { name: /reveal/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Show' })).toBeEnabled();
   });
 
   it.each(['member-host', 'member-1'])('allows %s to edit the outcome and advance the round', (myMemberId) => {
@@ -272,6 +272,81 @@ describe('room UI', () => {
     expect(screen.getByRole('textbox', { name: 'Final estimate' })).toHaveValue('5');
     expect(screen.getByRole('textbox', { name: 'Note' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Next round' })).toBeEnabled();
+  });
+
+  it.each(['member-host', 'member-1'])('lets %s change a shown vote without replacing the final estimate', async (myMemberId) => {
+    const current = { ...revealedSnapshot(), myMemberId };
+    const updated: RoomSnapshot = {
+      ...current,
+      myVote: '13',
+      members: current.members.map((member) => member.id === myMemberId ? { ...member, vote: '13' } : member),
+      distribution: { ...current.distribution!, '5': 1, '13': 1 },
+    };
+    roomApi.submitVote.mockResolvedValueOnce(updated);
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={current} />);
+
+    expect(screen.getByText('Your vote is visible. You can still change it until the next round.')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: '13' }));
+
+    expect(await screen.findByRole('button', { name: '13 selected' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(screen.getByTestId(`member-card-${myMemberId}`)).getByTestId('member-card-front')).toHaveTextContent('13');
+    expect(screen.getByRole('img', { name: '5 votes: 1' })).toBeVisible();
+    expect(screen.getByRole('img', { name: '13 votes: 1' })).toBeVisible();
+    expect(screen.getByLabelText('Final estimate')).toHaveValue('5');
+    expect(screen.getByTestId('round-status')).toHaveTextContent('Revealed');
+    expect(roomApi.submitVote).toHaveBeenCalledWith('room-1', 'round-1', '13');
+  });
+
+  it('retains the shown vote and outcome draft when a revote fails', async () => {
+    roomApi.submitVote.mockRejectedValueOnce(new Error('Revote was not saved'));
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={revealedSnapshot()} />);
+    fireEvent.change(screen.getByLabelText('Final estimate'), { target: { value: '21' } });
+    fireEvent.change(screen.getByLabelText('Note'), { target: { value: 'Keep this draft' } });
+
+    await userEvent.click(screen.getByRole('button', { name: '13' }));
+
+    expect(await screen.findByText('Revote was not saved')).toBeVisible();
+    expect(screen.getByRole('button', { name: '5 selected' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(screen.getByTestId('member-card-member-1')).getByTestId('member-card-front')).toHaveTextContent('5');
+    expect(screen.getByLabelText('Final estimate')).toHaveValue('21');
+    expect(screen.getByLabelText('Note')).toHaveValue('Keep this draft');
+    expect(screen.getByRole('button', { name: '13' })).toBeEnabled();
+  });
+
+  it('disables shown vote edits and outcome controls during a pending revote', async () => {
+    let reject!: (reason: Error) => void;
+    roomApi.submitVote.mockReturnValueOnce(new Promise<RoomSnapshot>((_resolve, rejectPromise) => { reject = rejectPromise; }));
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={revealedSnapshot()} />);
+
+    await userEvent.click(screen.getByRole('button', { name: '13' }));
+
+    for (const card of screen.getAllByTestId('card-button')) expect(card).toBeDisabled();
+    expect(screen.getByLabelText('Final estimate')).toBeDisabled();
+    expect(screen.getByLabelText('Note')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next round' })).toBeDisabled();
+    await act(async () => { reject(new Error('Revote failed')); });
+    expect(screen.getByRole('button', { name: '13' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Next round' })).toBeEnabled();
+  });
+
+  it('blocks shown vote edits while reconnecting', async () => {
+    roomSyncState.status = 'reconnecting';
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={revealedSnapshot()} />);
+
+    await waitFor(() => expect(screen.getByText(/actions are unavailable/i)).toBeVisible());
+    expect(screen.getByRole('button', { name: '13 disabled' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: '13 disabled' }));
+    expect(roomApi.submitVote).not.toHaveBeenCalled();
+  });
+
+  it('does not offer vote edits in an archived round', () => {
+    const current = revealedSnapshot();
+    render(<RoomPage roomCode="AB12CD34" initialSnapshot={{
+      ...current,
+      round: { ...current.round, status: 'archived', archivedAt: '2024-01-01T00:06:00.000Z' },
+    }} />);
+    expect(screen.queryByRole('group', { name: 'Fibonacci cards' })).not.toBeInTheDocument();
+    expect(within(screen.getByTestId('member-card-member-1')).getByTestId('member-card-front')).toHaveTextContent('5');
   });
 
   it('does not offer manual host transfer', () => {
@@ -289,6 +364,7 @@ describe('room UI', () => {
       : member);
     state.round.note = 'Shared result';
     render(<RoomPage roomCode="AB12CD34" initialSnapshot={state} />);
+    expect(screen.queryByRole('group', { name: 'Fibonacci cards' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Next round' })).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Final estimate' })).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Note' })).not.toBeInTheDocument();
@@ -308,7 +384,7 @@ describe('room UI', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: /reveal/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Show' })).toBeDisabled();
   });
 
   it('disables every round mutation while the room is reconnecting', () => {
@@ -323,11 +399,11 @@ describe('room UI', () => {
       <RoundControls state={state} status="connected" {...controls} />,
     );
 
-    expect(screen.getByRole('button', { name: /reveal/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Show' })).toBeEnabled();
 
     rerender(<RoundControls state={state} status="reconnecting" {...controls} />);
 
-    expect(screen.getByRole('button', { name: /reveal/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Show' })).toBeDisabled();
 
     const revealed = { ...revealedSnapshot(), myMemberId: 'member-host' };
     rerender(<RoundControls state={revealed} status="connected" {...controls} />);
@@ -504,19 +580,19 @@ describe('room UI', () => {
     render(<RoomPage roomCode="AB12CD34" initialSnapshot={current} />);
 
     if (action === 'vote') await user.click(screen.getByRole('button', { name: '5' }));
-    else await user.click(screen.getByRole('button', { name: 'Reveal' }));
-    expect(screen.getByRole('button', { name: 'Reveal' })).toBeDisabled();
+    else await user.click(screen.getByRole('button', { name: 'Show' }));
+    expect(screen.getByRole('button', { name: 'Show' })).toBeDisabled();
     for (const card of screen.getAllByTestId('card-button')) expect(card).toBeDisabled();
     expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'true');
     await act(async () => { reject(new Error('Action failed')); });
-    expect(screen.getByRole('button', { name: 'Reveal' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Show' })).toBeEnabled();
     expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false');
   });
 
   it('updates the table when a voter reveals', async () => {
     roomApi.revealRound.mockResolvedValueOnce(revealedSnapshot());
     render(<RoomPage roomCode="AB12CD34" initialSnapshot={votingSnapshot()} />);
-    await userEvent.click(screen.getByRole('button', { name: 'Reveal' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Show' }));
     expect(await screen.findByTestId('round-status')).toHaveTextContent('Revealed');
     expect(screen.getByRole('button', { name: 'Next round' })).toBeEnabled();
     expect(screen.getByTestId('member-card-member-host')).toHaveTextContent('5');

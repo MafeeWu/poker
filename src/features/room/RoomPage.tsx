@@ -127,7 +127,7 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
   }, [snapshot?.room.id, snapshot?.myMemberId]);
 
   const handleVote = async (value: VoteValue) => {
-    if (!snapshot || status !== 'connected' || pendingAction || snapshot.round.status !== 'voting') {
+    if (!snapshot || status !== 'connected' || pendingAction || snapshot.round.status === 'archived') {
       return;
     }
 
@@ -160,7 +160,7 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
       setError(null);
       saveRecentRoom(nextSnapshot);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : 'Unable to reveal votes');
+      setError(caughtError instanceof Error ? caughtError.message : 'Unable to show votes');
     } finally {
       setPendingAction(null);
     }
@@ -246,7 +246,7 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
     );
   }
 
-  const canVote = snapshot.round.status === 'voting' && (currentMember?.role === 'voter' || currentMember?.role === 'host');
+  const canVote = snapshot.round.status !== 'archived' && (currentMember?.role === 'voter' || currentMember?.role === 'host');
   const isSubmittingVote = pendingAction === 'vote' && status === 'connected';
 
   return (
@@ -274,11 +274,16 @@ export function RoomPage({ roomCode, initialSnapshot }: RoomPageProps) {
         <section className="table-panel">
           {canVote ? (
             <div className="deck-section">
-              <div className="deck-heading"><h2>Pick your estimate</h2><span>Your vote stays private until reveal.</span></div>
+              <div className="deck-heading">
+                <h2>Pick your estimate</h2>
+                <span>{snapshot.round.status === 'voting'
+                  ? 'Your vote stays private until cards are shown.'
+                  : 'Your vote is visible. You can still change it until the next round.'}</span>
+              </div>
               <CardDeck
                 cards={FIBONACCI_CARDS}
                 selected={snapshot.myVote}
-                disabled={status !== 'connected' || pendingAction !== null || snapshot.round.status !== 'voting'}
+                disabled={status !== 'connected' || pendingAction !== null}
                 onSelect={handleVote}
               />
             </div>

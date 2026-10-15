@@ -13,6 +13,7 @@ The deployed database is initialized in this order:
 7. `20261009033000_align_room_host_lock_order.sql` aligns host-operation lock ordering.
 8. `20261009061000_enforce_unique_room_nicknames.sql` resolves legacy duplicate names and enforces room-local uniqueness.
 9. `20261013093000_allow_voters_to_manage_rounds.sql` allows hosts and voters to reveal, edit outcomes, and advance rounds, keeps observers read-only, aligns room/member/round lock ordering, and removes the manual `transfer_host` RPC.
+10. `20261015070000_allow_votes_after_show.sql` lets hosts and voters submit or change their own votes after Show, preserves archived votes, and uses the same room/member/round lock order as Next.
 
 Apply all files in `supabase/migrations` in chronological order. `supabase/seed.sql`
 is for local development only; do not import local test rooms into production.
@@ -23,6 +24,13 @@ Apply migration 9 to the existing backend before publishing the shared-control
 frontend. Uploading only `dist` does not change database permissions. The
 migration preserves existing rooms, members, votes, and history; creator/host
 identity is retained, but no round action requires host ownership.
+
+Apply migration 10 before publishing the Show/editable-vote frontend. Without
+it, the existing backend will reject votes after Show. It preserves existing
+votes and outcomes; revised member cards and distribution use the existing
+privacy-safe member-change notifications, without publishing individual vote
+rows. If a vote races with Next, it either completes before archival or is
+rejected because the round is already archived.
 
 ## Anonymous auth and browser environment variables
 
@@ -154,8 +162,9 @@ project. This initial upload does not commit or push the working tree.
 
 After publishing, verify independent host/voter/observer sessions, duplicate-name
 rejection, share-link routing, browser identity restoration, hidden vote values,
-Reveal, saved outcome/Note, and the next round. Use a clearly named disposable
-acceptance room; do not modify users' rooms. Production and local origins have
+Show, host/voter vote changes after Show synchronized to all clients, unchanged
+saved outcome/Note, and the next round with archived outcome/Note history. Use a
+clearly named disposable acceptance room; do not modify users' rooms. Production and local origins have
 separate browser identities, so a local guest identity does not migrate online.
 
 The initial hosted acceptance passed with three independent browser sessions:

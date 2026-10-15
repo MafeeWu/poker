@@ -12,7 +12,7 @@ original local SVGs; no game artwork or external fonts are required.
 Shared colors, spacing, and typography live in `src/styles/tokens.css`, layout and
 component styles in `src/app/app.css`, and motion in `src/styles/animations.css`.
 Submitted votes do not leave a visible selection outline, face-color change, or
-card lift; member cards indicate only that a vote was submitted until reveal.
+card lift; member cards indicate only that a vote was submitted until Show.
 Keyboard focus and temporary hover feedback remain available. Entry modes expose
 their selected state, role choices keep
 full-size touch targets, and room screens provide a home link. Layouts adapt down
@@ -41,10 +41,16 @@ before this persistence change cannot be reconstructed from recent-room history.
 
 ## Shared round controls
 
-Hosts and voters can reveal votes, edit the revealed round's final estimate and
+Hosts and voters can show votes, edit the shown round's final estimate and
 Note, and start the next round. Observers remain read-only: they can see revealed
 votes, results, and history, but cannot vote or manage rounds. A creator's host
 label is retained; manual host transfer is no longer available.
+
+The **Show** button makes votes visible without locking them. Hosts and voters
+can still pick a different card, including their first vote, until Next round.
+Changes update everyone's member cards and distribution immediately without
+overwriting the saved final estimate or Note. Next round archives the latest
+votes; archived votes cannot be changed.
 
 Shared outcome updates refresh untouched form fields without replacing another
 member's unsaved draft. Starting the next round saves the latest draft, archives
@@ -142,6 +148,6 @@ supabase test db
 node scripts/check-round-concurrency.mjs
 ```
 
-The concurrency check uses independent `psql` sessions inside `supabase_db_poker-mvp-local` (override with `POKER_DB_CONTAINER` for another local Supabase container). It coordinates real lock waits for host-first and voter-first Next requests and rolled-back host departure, verifies atomic round/identity/retry state, and removes only its own fixture rooms. Docker and a running local database are required; no credentials or database reset are needed.
+The concurrency check uses independent `psql` sessions inside `supabase_db_poker-mvp-local` (override with `POKER_DB_CONTAINER` for another local Supabase container). It coordinates real lock waits for host-first and voter-first Next requests, rolled-back host departure, and shown-vote/Next races in both orders. It verifies atomic round/identity/retry state, archival of the latest accepted vote, and rejection of votes after archival, and removes only its own fixture rooms. Docker and a running local database are required; no credentials or database reset are needed.
 
 While an outcome save is pending, estimate, Note, and other room mutations are disabled. Failed saves retain the visible draft for retry; clicking Next directly from an edited field submits its latest values atomically instead of starting a competing blur save.

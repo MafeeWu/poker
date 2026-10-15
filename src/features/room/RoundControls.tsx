@@ -23,7 +23,7 @@ export function RoundControls({ state, status, onReveal, onSaveOutcome, onNextRo
 
   return (
     <section className="round-controls" aria-label="Round controls">
-      {state.round.status === 'voting' ? <button type="button" className="arcade-button" data-testid="reveal-button" onClick={onReveal} disabled={actionsUnavailable || pendingAction === 'reveal'}>Reveal</button> : null}
+      {state.round.status === 'voting' ? <button type="button" className="arcade-button" data-testid="reveal-button" onClick={onReveal} disabled={actionsUnavailable || pendingAction === 'reveal'}>Show</button> : null}
 
       {state.round.status === 'revealed' ? (
         <RoundOutcomeForm

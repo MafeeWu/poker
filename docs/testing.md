@@ -116,8 +116,8 @@ the Note field's monospace text; homepage typography is unchanged and no font
 download is added. Browser regressions inspect actual rendered fonts as well as
 the card structure through reveal and archival.
 
-Every successful vote or revote triggers a 350ms member-card shake across room
-clients, including observers. The existing room channel broadcasts only random
+While votes are hidden, every successful vote or revote triggers a 350ms
+member-card shake across room clients, including observers. The existing room channel broadcasts only random
 event IDs, member IDs, and round IDs, never vote values. Receivers deduplicate
 events and check the current snapshot's round and membership; events received
 before the initial or updated round snapshot are validated after it arrives. These public,
@@ -127,7 +127,13 @@ Rejected votes do not shake, reloads do not replay prior events, and animation
 delivery failures explicitly distinguish the already-saved vote from the
 unsynchronized animation.
 
-The room E2E coverage uses three independent browser sessions to verify safe submitted-state indicators before Reveal, revealed member cards, positive-count distribution labels, unique-plurality and tied estimates, saved Notes, archived history, and the atomic Next round transition. It also checks the next round and its Reveal, reduced-motion output, 320–1440px member-card bounds and name placement, consistent suits, pending entry controls, mobile overflow, and keyboard focus.
+The room E2E coverage uses three independent browser sessions to verify safe submitted-state indicators before Show, shown member cards, positive-count distribution labels, unique-plurality and tied estimates, saved Notes, archived history, and the atomic Next round transition. It also checks host/voter vote changes after Show, synchronization to observers, and preservation of the saved outcome. Other checks cover the next round and its Show, reduced-motion output, 320–1440px member-card bounds and name placement, consistent suits, pending entry controls, mobile overflow, and keyboard focus.
+
+`supabase/tests/poker_revotes.sql` checks shown-round votes through the real RPC:
+host and voter updates, first-time votes after Show, unchanged final estimate
+and Note, updated member cards and distribution, authentication/membership/card
+validation, observer restrictions, archival of the updated distribution, and
+rejection after archival.
 
 1. Start the local stack and inspect its local API URL and anon key without resetting the database:
 

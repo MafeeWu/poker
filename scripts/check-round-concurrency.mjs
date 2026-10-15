@@ -59,6 +59,7 @@ function asUser(user) {
 }
 
 async function runScenario(order) {
+  const isVoteRace = order === 'vote-first' || order === 'next-before-vote';
   const prefix = `poker_lock_${randomUUID().replaceAll('-', '')}`;
   const admin = session(`${prefix}_admin`);
   const blocker = session(`${prefix}_blocker`);
@@ -78,6 +79,10 @@ async function runScenario(order) {
     const joined = JSON.parse((await admin.query(`${asUser(targetUser)}
       SELECT public.join_room('${created.room.code}', 'Lock Target', 'voter'); RESET ROLE;`))[0]);
     assert.equal(joined.members.find((member) => member.id === joined.myMemberId).role, 'voter');
+    if (isVoteRace) {
+      await admin.query(`${asUser(targetUser)}
+        SELECT public.submit_vote('${roomId}', '${roundId}', '5'); RESET ROLE;`);
+    }
     await admin.query(`${asUser(hostUser)}
       SELECT public.reveal_round('${roomId}', '${roundId}'); RESET ROLE;`);
     await next.query(asUser(hostUser));
@@ -102,19 +107,28 @@ async function runScenario(order) {
       return task;
     };
     const nextSql = `SELECT public.complete_round_and_start_next_round('${roomId}', '${roundId}', '8', 'Concurrent result');`;
-    const otherNextSql = `SELECT public.complete_round_and_start_next_round('${roomId}', '${roundId}', '13', 'Late member result');`;
+    const otherSql = isVoteRace
+      ? `SELECT public.submit_vote('${roomId}', '${roundId}', '8');`
+      : `SELECT public.complete_round_and_start_next_round('${roomId}', '${roundId}', '13', 'Late member result');`;
     let nextTask;
     let otherTask;
-    if (order === 'host-first' || order === 'voter-first') {
+    if (order === 'host-first' || order === 'voter-first' || isVoteRace) {
       await blocker.query(`BEGIN; SELECT id FROM public.rounds WHERE id = '${roundId}' FOR UPDATE;`);
       if (order === 'voter-first') {
         await next.query(asUser(targetUser));
         await other.query(asUser(hostUser));
       }
-      nextTask = start(next, nextSql);
-      await waitForLock('next');
-      otherTask = start(other, otherNextSql);
-      await waitForLock('other');
+      if (order === 'vote-first') {
+        otherTask = start(other, otherSql);
+        await waitForLock('other');
+        nextTask = start(next, nextSql);
+        await waitForLock('next');
+      } else {
+        nextTask = start(next, nextSql);
+        await waitForLock('next');
+        otherTask = start(other, otherSql);
+        await waitForLock('other');
+      }
     } else {
       await next.query(asUser(targetUser));
       await other.query(asUser(hostUser));
@@ -126,7 +140,11 @@ async function runScenario(order) {
     }
     await blocker.query('COMMIT;');
     const [nextResult, otherResult] = await Promise.all([nextTask, otherTask]);
-    assert.ifError(otherResult.error);
+    if (order === 'next-before-vote') {
+      assert.match(otherResult.error?.message ?? '', /Round is not accepting votes/);
+    } else {
+      assert.ifError(otherResult.error);
+    }
     assert.ifError(nextResult.error);
 
     const [stateLine] = await admin.query(`SELECT jsonb_build_object(
@@ -146,6 +164,11 @@ async function runScenario(order) {
     assert.equal(retry.recentRounds[0].finalEstimate, '8');
     assert.equal(retry.recentRounds[0].note, 'Concurrent result');
     assert.equal(retry.members.filter((member) => member.role === 'host').length, 1);
+    if (isVoteRace) {
+      assert.equal(retry.recentRounds[0].distribution[order === 'vote-first' ? '8' : '5'], 1);
+      assert.equal(retry.recentRounds[0].distribution[order === 'vote-first' ? '5' : '8'], 0);
+      assert.equal(retry.myVote, null);
+    }
     console.log(`PASS ${order}: independent members, no deadlock, unchanged host and atomic round/retry invariants`);
   } finally {
     // Release barriers before draining actors, then remove only this run's fixture.
@@ -157,4 +180,4 @@ async function runScenario(order) {
   }
 }
 
-for (const order of ['host-first', 'voter-first', 'leave-first']) await runScenario(order);
+for (const order of ['host-first', 'voter-first', 'leave-first', 'vote-first', 'next-before-vote']) await runScenario(order);

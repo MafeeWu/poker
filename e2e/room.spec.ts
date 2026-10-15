@@ -294,7 +294,7 @@ test('observers stay read-only while a voter reveals, edits and advances the rou
       await expect(page.getByTestId('member-card-front')).toHaveCount(0);
     }
 
-    await voter.getByTestId('reveal-button').click();
+    await voter.getByRole('button', { name: 'Show', exact: true }).click();
     for (const page of [host, voter, observer]) {
       await expect(page.getByTestId('round-status')).toHaveText('Revealed');
       await expect(memberCard(page, 'Control Voter').getByTestId('member-card-front')).toHaveText('5');
@@ -302,6 +302,7 @@ test('observers stay read-only while a voter reveals, edits and advances the rou
     await expect(observer.getByRole('region', { name: 'Round controls' })).toHaveCount(0);
     await expect(observer.getByRole('textbox', { name: 'Note' })).toHaveCount(0);
     await expect(observer.getByRole('button', { name: 'Next round' })).toHaveCount(0);
+    await expect(observer.getByRole('group', { name: 'Fibonacci cards' })).toHaveCount(0);
 
     await voter.getByLabel('Final estimate').fill('13');
     await voter.getByLabel('Note').click();
@@ -311,6 +312,16 @@ test('observers stay read-only while a voter reveals, edits and advances the rou
     await expect(host.getByLabel('Final estimate')).toHaveValue('13');
     await expect(host.getByLabel('Note')).toHaveValue('Agreed by the team');
     await expect(observer.getByTestId('current-round-note')).toHaveText('Note: Agreed by the team');
+
+    await voter.getByRole('button', { name: '8', exact: true }).click();
+    await host.getByRole('button', { name: '3', exact: true }).click();
+    for (const page of [host, voter, observer]) {
+      await expect(memberCard(page, 'Control Voter').getByTestId('member-card-front')).toHaveText('8');
+      await expect(memberCard(page, 'Control Host').getByTestId('member-card-front')).toHaveText('3');
+      await expectDistribution(page, ['3', '8'], ['1', '1']);
+      await expect(page.getByTestId('round-status')).toHaveText('Revealed');
+      await expect(page.getByTestId('final-estimate-value')).toHaveText('Final estimate: 13');
+    }
     await voter.getByRole('button', { name: 'Next round' }).click();
     for (const page of [host, voter, observer]) {
       await expect(page.getByTestId('round-board').getByRole('heading')).toHaveText('Round 2');
